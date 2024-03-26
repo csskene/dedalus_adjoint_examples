@@ -9,6 +9,7 @@ from dedalus.extras.flow_tools import GlobalArrayReducer
 from mpi4py import MPI
 comm = MPI.COMM_WORLD
 ncpu = comm.size
+rank = comm.rank
 reducer = GlobalArrayReducer(MPI.COMM_WORLD)
 
 sys.path.append('../SphereManOpt')
@@ -17,16 +18,25 @@ from Sphere_Grad_Descent import Optimise_On_Multi_Sphere
 
 logger = logging.getLogger(__name__)
 
+# Parameters
+N = 24
+dealias = 1
+timestep = 1e-3
+timestepper = d3.SBDF1
+
+NIter = 1/timestep
+
+# LS = 'LS_wolfe'
+LS = 'LS_armijo'
+
 # Create bases and domain
 coords = d3.CartesianCoordinates('x', 'y', 'z')
-dist = d3.Distributor(coords, dtype=np.float64,mesh=[16,10])
-N = 24
-dealias=1
+dist = d3.Distributor(coords, dtype=np.float64,mesh=[2,2])
+
 xbasis = d3.RealFourier(coords['x'], size=N, bounds=(0, 2*np.pi), dealias=dealias)
 ybasis = d3.RealFourier(coords['y'], size=N, bounds=(0, 2*np.pi), dealias=dealias)
 zbasis = d3.RealFourier(coords['z'], size=N, bounds=(0, 2*np.pi), dealias=dealias)
 
-# factor = (2*np.pi)**3/32**3
 factor = 1/N**3
 
 phi  = dist.Field(name='phi', bases=(xbasis,ybasis,zbasis))
@@ -36,7 +46,6 @@ tau_phi = dist.Field(name='tau_phi')
 
 x, y, z = dist.local_grids(xbasis,ybasis,zbasis)
 
-u['g'] = np.cos(x)
 # Substitutions
 B = d3.curl(A)
 J = -d3.lap(A)
@@ -46,13 +55,12 @@ problem = d3.IVP([A, phi, tau_phi], namespace=locals())
 problem.add_equation("dt(A) + grad(phi) - η*lap(A) = d3.cross(u,B)")
 problem.add_equation("div(A) + tau_phi = 0")
 problem.add_equation("integ(phi) = 0")
-solver = problem.build_solver(d3.CNAB1)
+solver = problem.build_solver(timestepper)
 
+# For field to vector conversion
 dom = A.domain
 local_slice = dom.dist.grid_layout.slices(dom,scales=1)
 gshape = dom.dist.grid_layout.global_shape(dom,scales=1)
-
-# For field to vector conversion
 third = np.prod(gshape)
 
 def vecToField(vec,v_field):
@@ -112,7 +120,7 @@ for f in solver.F_sens:
 ############################
     
 states = []
-NN = 2000
+
 def cost(vec):
     # Reset solver
     solver.iteration = 0
@@ -125,8 +133,7 @@ def cost(vec):
     vecToField(vec[0],u)
     vecToField(vec[1],A)
 
-    solver.stop_iteration = NN
-    timestep = 5e-4
+    solver.stop_iteration = NIter
 
     states.clear()
     
@@ -138,18 +145,18 @@ def cost(vec):
         logger.error('Exception raised, triggering end of main loop.')
         raise
 
-    cost = reducer.reduce_scalar(np.linalg.norm(B['g'])**2*factor,MPI.SUM)
-
+    cost = reducer.reduce_scalar(-np.linalg.norm(B['g'])**2*factor,MPI.SUM)
+    if rank==0:
+        print(-cost)
     return cost
 
 def grad(vec):
-    solver.iteration = NN
+    solver.iteration = NIter
     solver.timestepper._LHS_params = False
     solver.timestepper.sensRHS.data *= 0
     solver.state_adj[0].change_scales(dealias)
     solver.state_adj[0]['g'] = -2*d3.curl(B)['g']*factor
     
-    timestep = 5e-4
     count = -1
     try:
         while solver.iteration>0:
@@ -175,21 +182,13 @@ psi  = dist.VectorField(coords,name='psi', bases=(xbasis,ybasis,zbasis))
 psi.fill_random()
 psi.low_pass_filter(scales=0.1)
 A.change_scales(dealias)
-A['g']=d3.curl(psi)['g']
+A['g'] = d3.curl(psi)['g']
 Ux0 = fieldToVec(A)
 psi.fill_random()
 psi.low_pass_filter(scales=0.1)
 u.change_scales(dealias)
-u['g']=d3.curl(psi)['g']
-dUx0 = fieldToVec(A)
+u['g'] = d3.curl(psi)['g']
+dUx0 = fieldToVec(u)
 
-A['g'] *= 1e-5
-u['g'] *= 1e-5
-A.change_scales(1)
-u.change_scales(1)
-A['g'][2] += np.cos(x) + np.sin(y)
-u['g'][1] += np.cos(z) + np.sin(x)
-Adjoint_Gradient_Test([Ux0,Ux0],[dUx0,dUx0], cost,grad, inner_product,args_f,args_IP,epsilon=1e-4)
-
-RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0,dUx0], [1,1],cost,grad,inner_product,args_f,args_IP, err_tol = 1e-06, max_iters = 1000, alpha_k = 100, LS='LS_wolfe',CG=True)
+RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0,dUx0], [1/factor,1/factor],cost,grad,inner_product,args_f,args_IP, err_tol = 1e-06, max_iters = 10, alpha_k = 10000, LS=LS, CG=True)
 
