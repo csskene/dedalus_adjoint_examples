@@ -71,7 +71,7 @@ logger = logging.getLogger(__name__)
 
 # Parameters
 N = 32
-q_list = np.linspace(0, 30, 10)
+q_list = np.linspace(0, 30, 5)
 q_list_f = np.linspace(0, 30, 100)
 # Basis
 coord = d3.Coordinate('x')
@@ -108,7 +108,7 @@ for qi in q_list:
 
     # Use the left eigenvectors to calculate the gradients
     sub_grad=[]
-    dLdq = 2*cos_2x
+    dLdq = -2*cos_2x
 
     for index in range(10):
         solver.set_state(indices[index],solver.subsystems[0])
@@ -116,7 +116,7 @@ for qi in q_list:
         set_state_adjoint(solver,indices[index],solver.subsystems[0])
         y_adj = y.copy()
 
-        grad = np.vdot(y_adj['c'],(dLdq*y_dir)['c'])
+        grad = np.vdot(y_adj['c'],(-dLdq*y_dir)['c'])
         sub_grad.append(grad)
     
     evals.append(sorted_evals[:10])

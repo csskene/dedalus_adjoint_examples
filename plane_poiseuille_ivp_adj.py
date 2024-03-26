@@ -71,7 +71,7 @@ problem.add_equation("v(y=2) = 0")
 problem.add_equation("w(y=0) = 0")
 problem.add_equation("w(y=2) = 0")
 
-solver = problem.build_solver(d3.RK443)
+solver = problem.build_solver(d3.SBDF2)
 # Get spectrally accurate weight matrices
 a_, b_ = ybasis.a, ybasis.b
 W_field = dist.Field(name='W_field', bases=(ybasis), adjoint=True)
@@ -161,8 +161,8 @@ logger.info('Time taken for whole sweep %f' % (time.time()-ts_tg))
 
 fig = plt.figure(figsize=(6, 4))
 plt.plot(times,gains,'-.')
-plt.xlabel("Gain")
-plt.ylabel("T")
+plt.ylabel("Gain")
+plt.xlabel("T")
 plt.title("Optimal gains for plane Poiseuille flow")
 plt.savefig("plane_poiseuille_optimal_gains_transient_growth.png", dpi=200)
 
