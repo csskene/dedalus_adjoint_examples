@@ -3,6 +3,17 @@ import numpy as np
 from dedalus import public as d3
 import logging
 import matplotlib.pyplot as plt
+import sys
+from dedalus.extras.flow_tools import GlobalArrayReducer
+
+from mpi4py import MPI
+comm = MPI.COMM_WORLD
+ncpu = comm.size
+reducer = GlobalArrayReducer(MPI.COMM_WORLD)
+
+sys.path.append('../SphereManOpt')
+from TestGrad import Adjoint_Gradient_Test
+from Sphere_Grad_Descent import Optimise_On_Multi_Sphere
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +23,9 @@ dist = d3.Distributor(coords, dtype=np.float64)
 xbasis = d3.RealFourier(coords['x'], size=32, bounds=(0, 2*np.pi), dealias=1)
 ybasis = d3.RealFourier(coords['y'], size=32, bounds=(0, 2*np.pi), dealias=1)
 zbasis = d3.RealFourier(coords['z'], size=32, bounds=(0, 2*np.pi), dealias=1)
+
+# factor = (2*np.pi)**3/32**3
+factor = 1/32**3
 
 phi  = dist.Field(name='phi', bases=(xbasis,ybasis,zbasis))
 u = dist.VectorField(coords, name='u', bases=(xbasis,ybasis,zbasis))
@@ -24,15 +38,55 @@ u['g'] = np.cos(x)
 # Substitutions
 B = d3.curl(A)
 J = -d3.lap(A)
-η = 0.5
+η = 1
 
 problem = d3.IVP([A, phi, tau_phi], namespace=locals())
 problem.add_equation("dt(A) + grad(phi) - η*lap(A) = d3.cross(u,B)")
 problem.add_equation("div(A) + tau_phi = 0")
 problem.add_equation("integ(phi) = 0")
 solver = problem.build_solver(d3.SBDF1)
-c_shape = u['g'].shape
-# print(c_shape)
+
+dom = A.domain
+local_slice = dom.dist.grid_layout.slices(dom,scales=1)
+gshape = dom.dist.grid_layout.global_shape(dom,scales=1)
+
+# For field to vector conversion
+third = np.prod(gshape)
+
+def vecToField(vec,v_field):
+    """
+    Takes vec and returns the field representation
+    """
+    # Ensure field in grid space with scales=1
+    v_field['g']
+    v_field.change_scales(1)
+    v_field['g'][0] = vec[:third].reshape(gshape)[local_slice]
+    v_field['g'][1] = vec[third:2*third].reshape(gshape)[local_slice]
+    v_field['g'][2] = vec[2*third:3*third].reshape(gshape)[local_slice]
+
+def fieldToVec(B_field):
+    """
+    Takes x_field and returns the vector representation
+    """
+    vecB_phi   = np.zeros(gshape)
+    vecB_theta = np.zeros(gshape)
+    vecB_r     = np.zeros(gshape)
+    # Make sure in grid space with scales=1
+    B_field['g']
+    B_field.change_scales(1)
+
+    # The SphereManOpt method
+    B_phi_global = comm.allgather(B_field['g'][0])
+    B_theta_global = comm.allgather(B_field['g'][1])
+    B_r_global = comm.allgather(B_field['g'][2])
+    G_slices = comm.allgather(local_slice)
+    for i in range(ncpu):
+        vecB_phi[G_slices[i]] = np.real(B_phi_global[i])
+        vecB_theta[G_slices[i]] = np.real(B_theta_global[i])
+        vecB_r[G_slices[i]] = np.real(B_r_global[i])
+    
+    vec = np.hstack((vecB_phi.reshape(third),vecB_theta.reshape(third),vecB_r.reshape(third)))
+    return vec
 
 # Manually set adjoint RHS #
 adjoint_terms = [-d3.curl(d3.cross(u,solver.state_adj[0])), problem.eqs[1]['F'],  problem.eqs[2]['F']]
@@ -54,21 +108,11 @@ solver.F_sens = F_sens_handler.fields
 for f in solver.F_sens:
     f.adjoint=True
 ############################
-states = []
-NN = 10
-def cost(vec,solver):
-    # solver.iteration = 0
-    # problem.time['g'] = 0 
-    # solver.sim_time = 0
-    # solver.initial_iteration = 0
-    # # reset evaluator
-    # solver.evaluator.handlers[0].last_wall_div = -1
-    # solver.evaluator.handlers[0].last_sim_div = -1
-    # solver.evaluator.handlers[0].last_iter_div = -1
-    # # reset timestepper
-    # solver.timestepper._iteration = 0
     
-    # # Reset solver
+states = []
+NN = 100
+def cost(vec):
+    # Reset solver
     solver.iteration = 0
     solver.initial_iteration = 0
     solver.evaluator.handlers[0].last_iter_div = -1
@@ -76,14 +120,11 @@ def cost(vec,solver):
     solver.timestepper._iteration = 0
     solver.timestepper._LHS_params = False
 
-    A['g'][2] = np.cos(x)
-    A['g'][1] = 0
-    A['g'][0] = 0
+    vecToField(vec[0],u)
+    vecToField(vec[1],A)
 
-    u['g'] = vec.reshape(c_shape)
-    
     solver.stop_iteration = NN
-    timestep = 0.01
+    timestep = 5e-4
 
     states.clear()
     
@@ -95,17 +136,17 @@ def cost(vec,solver):
         logger.error('Exception raised, triggering end of main loop.')
         raise
 
-    cost = np.linalg.norm(B['g'])**2
-    print(cost)
+    cost = reducer.reduce_scalar(-0.5*np.linalg.norm(B['g'])**2*factor,MPI.SUM)
+
     return cost
 
-def grad(solver):
+def grad(vec):
     solver.iteration = NN
     solver.timestepper._LHS_params = False
-
-    solver.state_adj[0]['g'] = 2*d3.curl(B)['g'].reshape(c_shape)
+    solver.timestepper.sensRHS.data *= 0
+    solver.state_adj[0]['g'] = -d3.curl(B)['g']*factor
     
-    timestep = 0.01
+    timestep = 5e-4
     count = -1
     try:
         while solver.iteration>0:
@@ -115,42 +156,25 @@ def grad(solver):
     except:
         logger.error('Exception raised, triggering end of main loop.')
         raise
-     
-    grad = (solver.sens_adj[0]['g']).flatten()
+
+    gradU = fieldToVec(solver.sens_adj[0])
+    gradA = fieldToVec(solver.state_adj[0])
     
-    return grad
+    return [gradU,gradA]
 
+def inner_product(x,y):
+    return np.dot(x,y)
 
-# Taylor test
+args_f = []
+args_IP = []
 
-forcing0 = np.random.rand(np.prod(c_shape))
-forcingp = np.random.rand(np.prod(c_shape))
+A.fill_random()
+A.low_pass_filter(scales=0.5)
+Ux0 = fieldToVec(A)
+A.fill_random()
+A.low_pass_filter(scales=0.5)
+dUx0 = fieldToVec(A)
 
-cost0 = cost(forcing0,solver)
-grad0 = grad(solver)
+Adjoint_Gradient_Test([Ux0,Ux0],[dUx0,dUx0], cost,grad, inner_product,args_f,args_IP,epsilon=1e-4)
 
-eps = 0.001
-costs = []
-size = []
-for i in range(10):
-    costp = cost(forcing0+eps*forcingp,solver)
-    costs.append(costp)
-    size.append(eps)
-    eps /= 2
-
-first = np.abs(np.array(costs)-cost0)
-second = np.abs(np.array(costs)-cost0 - np.array(size)*np.vdot(grad0,forcingp))
-print((np.array(costs)-cost0)/np.array(size),np.vdot(grad0,forcingp))
-plt.loglog(size,first,label=r'First order')
-plt.loglog(size,second,label=r'Second order')
-plt.xlabel(r'$\epsilon$')
-plt.ylabel(r'Taylor test')
-plt.legend()
-plt.show()
-
-from scipy.stats import linregress
-print('######## Taylor Test Results ########')
-print('First order  : ',linregress(np.log(size), np.log(first)).slope)
-print('Second order : ',linregress(np.log(size), np.log(second)).slope)
-print('#####################################')
-
+RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0,dUx0], [1,1],cost,grad,inner_product,args_f,args_IP, err_tol = 1e-06, max_iters = 1000, alpha_k = 100, LS='LS_wolfe',CG=True)
