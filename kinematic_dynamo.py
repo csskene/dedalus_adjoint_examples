@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 # Parameters
 N = 24
 dealias = 1
-timestep = 1e-3
+timestep = 5e-4
 timestepper = d3.SBDF1
 
 NIter = 1/timestep
@@ -40,19 +40,22 @@ zbasis = d3.RealFourier(coords['z'], size=N, bounds=(0, 2*np.pi), dealias=dealia
 factor = 1/N**3
 
 phi  = dist.Field(name='phi', bases=(xbasis,ybasis,zbasis))
-u = dist.VectorField(coords, name='u', bases=(xbasis,ybasis,zbasis))
+chi = dist.VectorField(coords,name='chi', bases=(xbasis,ybasis,zbasis))
 A = dist.VectorField(coords, name='A', bases=(xbasis,ybasis,zbasis))
+B_init = dist.VectorField(coords, name='B_init', bases=(xbasis,ybasis,zbasis))
 tau_phi = dist.Field(name='tau_phi')
+V = dist.VectorField(coords,name='V') 
 
 x, y, z = dist.local_grids(xbasis,ybasis,zbasis)
 
 # Substitutions
 B = d3.curl(A)
+u = d3.curl(chi)
 J = -d3.lap(A)
 η = 1
 
 problem = d3.IVP([A, phi, tau_phi], namespace=locals())
-problem.add_equation("dt(A) + grad(phi) - η*lap(A) = d3.cross(u,B)")
+problem.add_equation("dt(A) + grad(phi) - η*lap(A) = cross(u,B)")
 problem.add_equation("div(A) + tau_phi = 0")
 problem.add_equation("integ(phi) = 0")
 solver = problem.build_solver(timestepper)
@@ -109,7 +112,7 @@ for f in solver.F_adjoint:
     f.adjoint=True
 ############################
 # sensitivity handler
-sens_terms = [d3.cross(B,solver.state_adj[0]), problem.eqs[1]['F'],  problem.eqs[2]['F']]
+sens_terms = [d3.curl(d3.cross(B,solver.state_adj[0])), problem.eqs[1]['F'],  problem.eqs[2]['F']]
 F_sens_handler = solver.evaluator.add_system_handler(iter=1, group='F_sens')
 for eq in sens_terms:
     F_sens_handler.add_task(eq)
@@ -118,7 +121,19 @@ solver.F_sens = F_sens_handler.fields
 for f in solver.F_sens:
     f.adjoint=True
 ############################
-    
+
+# Problem for divergence cleaning
+Pi  = dist.Field(name='Pi', bases=(xbasis,ybasis,zbasis))
+tau_Pi = dist.Field(name='tau_Pi',)
+
+# problem for vector potential
+problem_A = d3.LBVP([A, phi, tau_phi, V], namespace=locals())
+problem_A.add_equation("-lap(A) + grad(phi) + V = curl(B_init)")
+problem_A.add_equation("div(A) + tau_phi = 0")
+problem_A.add_equation("integ(phi) = 0")
+problem_A.add_equation("integ(A) = 0")
+solver_A = problem_A.build_solver()
+
 states = []
 
 def cost(vec):
@@ -130,8 +145,10 @@ def cost(vec):
     solver.timestepper._iteration = 0
     solver.timestepper._LHS_params = False
 
-    vecToField(vec[0],u)
-    vecToField(vec[1],A)
+    vecToField(vec[0],chi)
+    vecToField(vec[1],B_init)
+
+    solver_A.solve()
 
     solver.stop_iteration = NIter
 
@@ -166,9 +183,14 @@ def grad(vec):
     except:
         logger.error('Exception raised, triggering end of main loop.')
         raise
-
+    solver_A.state_adj[0].change_scales(dealias) 
+    solver_A.state_adj[0]['g'] = solver.state_adj[0]['g']
+    solver_A.solve_adjoint()
+    
     gradU = fieldToVec(solver.sens_adj[0])
-    gradA = fieldToVec(solver.state_adj[0])
+    solver_A.F_adj[0].change_scales(dealias)
+    solver.state_adj[0]['g'] = solver_A.F_adj[0]['g']
+    gradA = fieldToVec(d3.curl(solver.state_adj[0]).evaluate())
     
     return [gradU,gradA]
 
@@ -186,9 +208,9 @@ A['g'] = d3.curl(psi)['g']
 Ux0 = fieldToVec(A)
 psi.fill_random()
 psi.low_pass_filter(scales=0.1)
-u.change_scales(dealias)
-u['g'] = d3.curl(psi)['g']
-dUx0 = fieldToVec(u)
+chi.change_scales(dealias)
+chi['g'] = d3.curl(psi)['g']
+dUx0 = fieldToVec(chi)
 
-RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0,dUx0], [1/factor,1/factor],cost,grad,inner_product,args_f,args_IP, err_tol = 1e-06, max_iters = 10, alpha_k = 10000, LS=LS, CG=True)
-
+Adjoint_Gradient_Test([Ux0,Ux0],[dUx0,dUx0], cost, grad, inner_product,args_f,args_IP,epsilon=1e-4)
+RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0,dUx0], [1/factor,1/factor],cost,grad,inner_product,args_f,args_IP, max_iters = 20, alpha_k = 1, LS=LS, CG=True)
