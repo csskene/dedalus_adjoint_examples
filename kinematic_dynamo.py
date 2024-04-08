@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 
 # Parameters
 N = 24
-dealias = 1
-timestep = 5e-4
+dealias = 3/2
+timestep = 1e-3
 timestepper = d3.SBDF1
 
 NIter = 1/timestep
@@ -29,28 +29,35 @@ NIter = 1/timestep
 # LS = 'LS_wolfe'
 LS = 'LS_armijo'
 
+# Weight matrix global (definitely better ways!)
+weight = np.ones((N,N,N))*np.pi**3
+# Adjust for zeroth rows
+for i in range(N):
+    for j in range(N):
+        for k in range(N):
+            p = np.count_nonzero(np.array([i,j,k])==0)
+            weight[i,j,k] *= 2**p
+
+weight /= (2*np.pi)**3
 # Create bases and domain
 coords = d3.CartesianCoordinates('x', 'y', 'z')
-dist = d3.Distributor(coords, dtype=np.float64,mesh=[2,2])
+dist = d3.Distributor(coords, dtype=np.float64, mesh=[2,2])
 
 xbasis = d3.RealFourier(coords['x'], size=N, bounds=(0, 2*np.pi), dealias=dealias)
 ybasis = d3.RealFourier(coords['y'], size=N, bounds=(0, 2*np.pi), dealias=dealias)
 zbasis = d3.RealFourier(coords['z'], size=N, bounds=(0, 2*np.pi), dealias=dealias)
 
-factor = 1/N**3
-
 phi  = dist.Field(name='phi', bases=(xbasis,ybasis,zbasis))
-chi = dist.VectorField(coords,name='chi', bases=(xbasis,ybasis,zbasis))
+u = dist.VectorField(coords, name='u', bases=(xbasis,ybasis,zbasis))
 A = dist.VectorField(coords, name='A', bases=(xbasis,ybasis,zbasis))
 B_init = dist.VectorField(coords, name='B_init', bases=(xbasis,ybasis,zbasis))
 tau_phi = dist.Field(name='tau_phi')
-V = dist.VectorField(coords,name='V') 
+V = dist.VectorField(coords, name='V')
 
 x, y, z = dist.local_grids(xbasis,ybasis,zbasis)
 
 # Substitutions
 B = d3.curl(A)
-u = d3.curl(chi)
 J = -d3.lap(A)
 η = 1
 
@@ -62,20 +69,22 @@ solver = problem.build_solver(timestepper)
 
 # For field to vector conversion
 dom = A.domain
-local_slice = dom.dist.grid_layout.slices(dom,scales=1)
-gshape = dom.dist.grid_layout.global_shape(dom,scales=1)
+local_slice = dom.dist.coeff_layout.slices(dom,scales=1)
+gshape = dom.dist.coeff_layout.global_shape(dom,scales=1)
+lshape = dom.dist.coeff_layout.local_shape(dom,scales=1)
 third = np.prod(gshape)
+local_weight = weight[local_slice]
 
 def vecToField(vec,v_field):
     """
     Takes vec and returns the field representation
     """
     # Ensure field in grid space with scales=1
-    v_field['g']
-    v_field.change_scales(1)
-    v_field['g'][0] = vec[:third].reshape(gshape)[local_slice]
-    v_field['g'][1] = vec[third:2*third].reshape(gshape)[local_slice]
-    v_field['g'][2] = vec[2*third:3*third].reshape(gshape)[local_slice]
+    v_field['c']
+    # v_field.change_scales(1)
+    v_field['c'][0] = vec[:third].reshape(gshape)[local_slice]
+    v_field['c'][1] = vec[third:2*third].reshape(gshape)[local_slice]
+    v_field['c'][2] = vec[2*third:3*third].reshape(gshape)[local_slice]
 
 def fieldToVec(B_field):
     """
@@ -85,13 +94,13 @@ def fieldToVec(B_field):
     vecB_theta = np.zeros(gshape)
     vecB_r     = np.zeros(gshape)
     # Make sure in grid space with scales=1
-    B_field['g']
+    B_field['c']
     B_field.change_scales(1)
 
     # The SphereManOpt method
-    B_phi_global = comm.allgather(B_field['g'][0])
-    B_theta_global = comm.allgather(B_field['g'][1])
-    B_r_global = comm.allgather(B_field['g'][2])
+    B_phi_global = comm.allgather(B_field['c'][0])
+    B_theta_global = comm.allgather(B_field['c'][1])
+    B_r_global = comm.allgather(B_field['c'][2])
     G_slices = comm.allgather(local_slice)
     for i in range(ncpu):
         vecB_phi[G_slices[i]] = np.real(B_phi_global[i])
@@ -112,7 +121,7 @@ for f in solver.F_adjoint:
     f.adjoint=True
 ############################
 # sensitivity handler
-sens_terms = [d3.curl(d3.cross(B,solver.state_adj[0])), problem.eqs[1]['F'],  problem.eqs[2]['F']]
+sens_terms = [d3.cross(B,solver.state_adj[0]), problem.eqs[1]['F'],  problem.eqs[2]['F']]
 F_sens_handler = solver.evaluator.add_system_handler(iter=1, group='F_sens')
 for eq in sens_terms:
     F_sens_handler.add_task(eq)
@@ -120,11 +129,17 @@ F_sens_handler.build_system()
 solver.F_sens = F_sens_handler.fields
 for f in solver.F_sens:
     f.adjoint=True
-############################
+###########################
 
 # Problem for divergence cleaning
 Pi  = dist.Field(name='Pi', bases=(xbasis,ybasis,zbasis))
-tau_Pi = dist.Field(name='tau_Pi',)
+tau_Pi = dist.Field(name='tau_Pi')
+u_update  = dist.VectorField(coords, name='u_update', bases=(xbasis,ybasis,zbasis))
+
+problem_u = d3.LBVP([Pi, tau_Pi], namespace=locals())
+problem_u.add_equation("lap(Pi) + tau_Pi = div(u_update)")
+problem_u.add_equation("integ(Pi) = 0")
+solver_u = problem_u.build_solver()
 
 # problem for vector potential
 problem_A = d3.LBVP([A, phi, tau_phi, V], namespace=locals())
@@ -135,7 +150,6 @@ problem_A.add_equation("integ(A) = 0")
 solver_A = problem_A.build_solver()
 
 states = []
-
 def cost(vec):
     # Reset solver
     solver.iteration = 0
@@ -145,15 +159,20 @@ def cost(vec):
     solver.timestepper._iteration = 0
     solver.timestepper._LHS_params = False
 
-    vecToField(vec[0],chi)
-    vecToField(vec[1],B_init)
+    vecToField(vec[0], u)
+    vecToField(vec[1], B_init)
+    u['c'][:] /= np.sqrt(local_weight)
+    B_init['c'][:] /= np.sqrt(local_weight)
+
+    # print('int u',d3.integ(u@u).evaluate()['g']/(2*np.pi)**3)
+    # print('int B',d3.integ(B_init@B_init).evaluate()['g'])
 
     solver_A.solve()
 
     solver.stop_iteration = NIter
 
     states.clear()
-    
+    A.change_scales(dealias)
     try:
         while solver.proceed:
             states.append(A['c'].copy())
@@ -161,8 +180,11 @@ def cost(vec):
     except:
         logger.error('Exception raised, triggering end of main loop.')
         raise
+    B_cost = d3.curl(A).evaluate()['c']
+    B_cost[:] *= np.sqrt(local_weight)
 
-    cost = reducer.reduce_scalar(-np.linalg.norm(B['g'])**2*factor,MPI.SUM)
+    cost = reducer.reduce_scalar(-np.linalg.norm(B_cost)**2,MPI.SUM)
+    
     if rank==0:
         print(-cost)
     return cost
@@ -171,8 +193,9 @@ def grad(vec):
     solver.iteration = NIter
     solver.timestepper._LHS_params = False
     solver.timestepper.sensRHS.data *= 0
-    solver.state_adj[0].change_scales(dealias)
-    solver.state_adj[0]['g'] = -2*d3.curl(B)['g']*factor
+
+    solver.state_adj[0]['c'] = -2*(d3.curl(B))['c']
+    solver.state_adj[0]['c'][:] *= local_weight
     
     count = -1
     try:
@@ -183,16 +206,26 @@ def grad(vec):
     except:
         logger.error('Exception raised, triggering end of main loop.')
         raise
-    solver_A.state_adj[0].change_scales(dealias) 
-    solver_A.state_adj[0]['g'] = solver.state_adj[0]['g']
+
+    solver_A.state_adj[0]['c'] = solver.state_adj[0]['c']
     solver_A.solve_adjoint()
-    
-    gradU = fieldToVec(solver.sens_adj[0])
-    solver_A.F_adj[0].change_scales(dealias)
-    solver.state_adj[0]['g'] = solver_A.F_adj[0]['g']
+
+    # Divergence cleaning u
+    solver.sens_adj[0].change_scales(1)
+
+    u_update['c'] = solver.sens_adj[0]['c']
+    solver_u.solve()
+    u_grad = ((u_update - d3.grad(Pi))-d3.integ(u_update - d3.grad(Pi))).evaluate()
+    u_grad['c'][:] /= np.sqrt(local_weight)
+
+    gradU = fieldToVec(u_grad)
+
+    solver.state_adj[0]['c'] = solver_A.F_adj[0]['c']
+    solver.state_adj[0]['c'][:] /= np.sqrt(local_weight)
+ 
     gradA = fieldToVec(d3.curl(solver.state_adj[0]).evaluate())
     
-    return [gradU,gradA]
+    return [gradU, gradA]
 
 def inner_product(x,y):
     return np.dot(x,y)
@@ -200,6 +233,7 @@ def inner_product(x,y):
 args_f = []
 args_IP = []
 
+# Random divergence free initial conditions
 psi  = dist.VectorField(coords,name='psi', bases=(xbasis,ybasis,zbasis))
 psi.fill_random()
 psi.low_pass_filter(scales=0.1)
@@ -208,9 +242,12 @@ A['g'] = d3.curl(psi)['g']
 Ux0 = fieldToVec(A)
 psi.fill_random()
 psi.low_pass_filter(scales=0.1)
-chi.change_scales(dealias)
-chi['g'] = d3.curl(psi)['g']
-dUx0 = fieldToVec(chi)
+u.change_scales(dealias)
+u['g'] = d3.curl(psi)['g']
+dUx0 = fieldToVec(u)
 
-Adjoint_Gradient_Test([Ux0,Ux0],[dUx0,dUx0], cost, grad, inner_product,args_f,args_IP,epsilon=1e-4)
-RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0,dUx0], [1/factor,1/factor],cost,grad,inner_product,args_f,args_IP, max_iters = 20, alpha_k = 1, LS=LS, CG=True)
+dUx0 /= np.sqrt(inner_product(dUx0,dUx0))
+Ux0 /= np.sqrt(inner_product(Ux0,Ux0))
+
+# Adjoint_Gradient_Test([Ux0,Ux0],[dUx0,dUx0], cost, grad, inner_product,args_f,args_IP,epsilon=1e-4)
+RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0,dUx0], [1,1],cost,grad,inner_product,args_f,args_IP, max_iters = 20, alpha_k = 1, LS=LS, CG=True)
