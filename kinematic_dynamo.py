@@ -55,7 +55,8 @@ dealias = 3/2
 timestep = 1e-3
 timestepper = d3.SBDF1
 
-NIter = 1/timestep
+# NIter = 0.1/timestep
+NIter = 2
 
 # Global weight matrix (definitely better ways!)
 weight = np.ones((N,N,N))*np.pi**3
@@ -300,7 +301,7 @@ if optimisation_package =='pymanopt':
         verbosity = 0
         log_verbosity = 0
 
-    optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=3,  log_verbosity=log_verbosity)
+    optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=100,  log_verbosity=log_verbosity)
     sol = optimizer.run(problem, initial_point = [Ux0,dUx0])
 
     if(rank==0):
@@ -317,8 +318,8 @@ elif optimisation_package == 'SphereManOpt':
     # LS = 'LS_armijo'
 
     Adjoint_Gradient_Test([Ux0,dUx0],[Ux0,dUx0], cost, grad, inner_product,args_f,args_IP,epsilon=1e-4)
-    gradient_norms, costs, U_opt = Optimise_On_Multi_Sphere([Ux0,dUx0], [1,1],cost,grad,inner_product,args_f,args_IP, max_iters = 6, alpha_k = 100, LS=LS, CG=True)
+    gradient_norms, costs, U_opt = Optimise_On_Multi_Sphere([Ux0,dUx0], [1,1],cost,grad,inner_product,args_f,args_IP, max_iters = 100, alpha_k = 100, LS=LS, CG=True)
 
-    iterations = np.linspace(1,len(costs),len(costs))
+    # iterations = np.linspace(1,len(costs),len(costs))
 
-    plot_convergence(iterations, -np.array(costs), np.linalg.norm(gradient_norms,axis=0))
+    # plot_convergence(iterations, -np.array(costs), np.linalg.norm(gradient_norms,axis=0))
