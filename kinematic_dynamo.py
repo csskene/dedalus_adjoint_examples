@@ -30,6 +30,23 @@ elif optimisation_package == 'SphereManOpt':
     from TestGrad import Adjoint_Gradient_Test
     from Sphere_Grad_Descent import Optimise_On_Multi_Sphere
 
+def plot_convergence(iterations, costs, gradient_norms):
+    fig, ax1 = plt.subplots(figsize=(6,4))
+    ax2 = ax1.twinx()
+    ax1.plot(iterations, -np.array(costs),'C0',)
+    ax2.semilogy(iterations, gradient_norms,'C1')
+    plt.title(optimisation_package)
+    ax1.set_xlabel(r'Iterations')
+    ax1.set_ylabel(r'Cost', color='C0')
+    ax2.set_ylabel(r'Gradient norm', color='C1')
+    ax1.tick_params(axis='y', labelcolor='C0', color='C0')
+    ax2.tick_params(axis='y', labelcolor='C1', color='C1')
+    ax2.spines['right'].set_color('C1')
+    ax2.spines['left'].set_color('C0')
+    ax1.tick_params(axis='y', colors='C0', labelcolor='C0',which='both')
+    ax2.tick_params(axis='y', colors='C1', labelcolor='C1',which='both')
+    plt.savefig("kinematic_dynamo_{:s}.png".format(optimisation_package), dpi=200,bbox_inches='tight')
+
 logger = logging.getLogger(__name__)
 
 # Parameters
@@ -278,11 +295,20 @@ if optimisation_package =='pymanopt':
 
     if rank==0:
         verbosity = 2
+        log_verbosity = 1
     else:
         verbosity = 0
+        log_verbosity = 0
 
-    optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=100)
-    optimizer.run(problem, initial_point = [Ux0,dUx0])
+    optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=3,  log_verbosity=log_verbosity)
+    sol = optimizer.run(problem, initial_point = [Ux0,dUx0])
+
+    if(rank==0):
+        iterations     = optimizer._log["iterations"]["iteration"]
+        costs          = optimizer._log["iterations"]["cost"]
+        gradient_norms = optimizer._log["iterations"]["gradient_norm"]
+
+        plot_convergence(iterations, costs, gradient_norms)
 
 elif optimisation_package == 'SphereManOpt':
     cost = lambda A: forward(A)
@@ -291,4 +317,8 @@ elif optimisation_package == 'SphereManOpt':
     # LS = 'LS_armijo'
 
     Adjoint_Gradient_Test([Ux0,dUx0],[Ux0,dUx0], cost, grad, inner_product,args_f,args_IP,epsilon=1e-4)
-    RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0,dUx0], [1,1],cost,grad,inner_product,args_f,args_IP, max_iters = 100, alpha_k = 1000, LS=LS, CG=True)
+    gradient_norms, costs, U_opt = Optimise_On_Multi_Sphere([Ux0,dUx0], [1,1],cost,grad,inner_product,args_f,args_IP, max_iters = 6, alpha_k = 100, LS=LS, CG=True)
+
+    iterations = np.linspace(1,len(costs),len(costs))
+
+    plot_convergence(iterations, -np.array(costs), np.linalg.norm(gradient_norms,axis=0))
