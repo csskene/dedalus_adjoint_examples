@@ -52,7 +52,13 @@ for i in range(N):
 weight /= (2*np.pi)**3
 # Create bases and domain
 coords = d3.CartesianCoordinates('x', 'y', 'z')
-dist = d3.Distributor(coords, dtype=np.float64, mesh=[2,2])
+
+# Choose mesh whose factors are most similar in size
+factors = [[ncpu//i,i] for i in range(1,int(np.sqrt(ncpu))+1) if np.mod(ncpu,i)==0]
+score = np.array([f[1]/f[0] for f in factors])
+mesh = factors[np.argmax(score)]
+
+dist = d3.Distributor(coords, dtype=np.float64, mesh=mesh)
 
 xbasis = d3.RealFourier(coords['x'], size=N, bounds=(0, 2*np.pi), dealias=dealias)
 ybasis = d3.RealFourier(coords['y'], size=N, bounds=(0, 2*np.pi), dealias=dealias)
