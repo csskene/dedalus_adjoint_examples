@@ -55,8 +55,8 @@ dealias = 3/2
 timestep = 1e-3
 timestepper = d3.SBDF1
 
-# NIter = 0.1/timestep
-NIter = 2
+NIter = 1/timestep
+
 
 # Global weight matrix (definitely better ways!)
 weight = np.ones((N,N,N))*np.pi**3
