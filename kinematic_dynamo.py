@@ -12,9 +12,23 @@ ncpu = comm.size
 rank = comm.rank
 reducer = GlobalArrayReducer(MPI.COMM_WORLD)
 
-sys.path.append('../SphereManOpt')
-from TestGrad import Adjoint_Gradient_Test
-from Sphere_Grad_Descent import Optimise_On_Multi_Sphere
+# Choose optimisation package
+optimisation_package = 'pymanopt'
+# optimisation_package = 'SphereManOpt'
+logger = logging.getLogger(__name__)
+
+if optimisation_package =='pymanopt':
+    import pymanopt
+    from pymanopt.manifolds import Sphere
+    from pymanopt.optimizers import ConjugateGradient
+    from pymanopt.manifolds.product import Product
+
+    from pymanopt.tools.diagnostics import check_gradient
+    logging.getLogger().setLevel(logging.WARNING)
+elif optimisation_package == 'SphereManOpt':
+    sys.path.append('../SphereManOpt')
+    from TestGrad import Adjoint_Gradient_Test
+    from Sphere_Grad_Descent import Optimise_On_Multi_Sphere
 
 logger = logging.getLogger(__name__)
 
@@ -26,10 +40,7 @@ timestepper = d3.SBDF1
 
 NIter = 1/timestep
 
-# LS = 'LS_wolfe'
-LS = 'LS_armijo'
-
-# Weight matrix global (definitely better ways!)
+# Global weight matrix (definitely better ways!)
 weight = np.ones((N,N,N))*np.pi**3
 # Adjust for zeroth rows
 for i in range(N):
@@ -81,7 +92,6 @@ def vecToField(vec,v_field):
     """
     # Ensure field in grid space with scales=1
     v_field['c']
-    # v_field.change_scales(1)
     v_field['c'][0] = vec[:third].reshape(gshape)[local_slice]
     v_field['c'][1] = vec[third:2*third].reshape(gshape)[local_slice]
     v_field['c'][2] = vec[2*third:3*third].reshape(gshape)[local_slice]
@@ -150,7 +160,8 @@ problem_A.add_equation("integ(A) = 0")
 solver_A = problem_A.build_solver()
 
 states = []
-def cost(vec):
+
+def forward(vec):
     # Reset solver
     solver.iteration = 0
     solver.initial_iteration = 0
@@ -163,9 +174,6 @@ def cost(vec):
     vecToField(vec[1], B_init)
     u['c'][:] /= np.sqrt(local_weight)
     B_init['c'][:] /= np.sqrt(local_weight)
-
-    # print('int u',d3.integ(u@u).evaluate()['g']/(2*np.pi)**3)
-    # print('int B',d3.integ(B_init@B_init).evaluate()['g'])
 
     solver_A.solve()
 
@@ -185,11 +193,9 @@ def cost(vec):
 
     cost = reducer.reduce_scalar(-np.linalg.norm(B_cost)**2,MPI.SUM)
     
-    if rank==0:
-        print(-cost)
     return cost
 
-def grad(vec):
+def backward(vec):
     solver.iteration = NIter
     solver.timestepper._LHS_params = False
     solver.timestepper.sensRHS.data *= 0
@@ -211,11 +217,10 @@ def grad(vec):
     solver_A.solve_adjoint()
 
     # Divergence cleaning u
-    solver.sens_adj[0].change_scales(1)
-
     u_update['c'] = solver.sens_adj[0]['c']
     solver_u.solve()
-    u_grad = ((u_update - d3.grad(Pi))-d3.integ(u_update - d3.grad(Pi))).evaluate()
+    u_grad_pre = (u_update - d3.grad(Pi))
+    u_grad = (u_grad_pre - d3.integ(u_grad_pre)/(2*np.pi)**3).evaluate()
     u_grad['c'][:] /= np.sqrt(local_weight)
 
     gradU = fieldToVec(u_grad)
@@ -224,7 +229,7 @@ def grad(vec):
     solver.state_adj[0]['c'][:] /= np.sqrt(local_weight)
  
     gradA = fieldToVec(d3.curl(solver.state_adj[0]).evaluate())
-    
+
     return [gradU, gradA]
 
 def inner_product(x,y):
@@ -235,19 +240,49 @@ args_IP = []
 
 # Random divergence free initial conditions
 psi  = dist.VectorField(coords,name='psi', bases=(xbasis,ybasis,zbasis))
-psi.fill_random()
-psi.low_pass_filter(scales=0.1)
-A.change_scales(dealias)
-A['g'] = d3.curl(psi)['g']
+psi.fill_random(layout='c')
+psi.low_pass_filter(scales=0.6)
+A['c'] = d3.curl(psi)['c']
 Ux0 = fieldToVec(A)
-psi.fill_random()
-psi.low_pass_filter(scales=0.1)
-u.change_scales(dealias)
-u['g'] = d3.curl(psi)['g']
+
+psi.fill_random(layout='c')
+psi.low_pass_filter(scales=0.6)
+u['c'] = d3.curl(psi)['c']
 dUx0 = fieldToVec(u)
 
 dUx0 /= np.sqrt(inner_product(dUx0,dUx0))
 Ux0 /= np.sqrt(inner_product(Ux0,Ux0))
 
-# Adjoint_Gradient_Test([Ux0,Ux0],[dUx0,dUx0], cost, grad, inner_product,args_f,args_IP,epsilon=1e-4)
-RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0,dUx0], [1,1],cost,grad,inner_product,args_f,args_IP, max_iters = 20, alpha_k = 1, LS=LS, CG=True)
+if optimisation_package =='pymanopt':
+    manifold1 = Sphere(3*third)
+    manifold2 = Sphere(3*third)
+
+    manifold = Product([manifold1,manifold2])
+
+    @pymanopt.function.numpy(manifold)  
+    def cost(vecU,vecA):
+        return forward([vecU,vecA])
+    
+    @pymanopt.function.numpy(manifold)
+    def grad(vecU,vecA):
+        forward([vecU,vecA])
+        return backward([vecU,vecA])
+   
+    problem = pymanopt.Problem(manifold, cost, euclidean_gradient=grad)
+
+    if rank==0:
+        verbosity = 2
+    else:
+        verbosity = 0
+
+    optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=100)
+    optimizer.run(problem, initial_point = [Ux0,dUx0])
+
+elif optimisation_package == 'SphereManOpt':
+    cost = lambda A: forward(A)
+    grad = lambda A: backward(A)
+    LS = 'LS_wolfe'
+    # LS = 'LS_armijo'
+
+    Adjoint_Gradient_Test([Ux0,dUx0],[Ux0,dUx0], cost, grad, inner_product,args_f,args_IP,epsilon=1e-4)
+    RESIDUAL,FUNCT,U_opt = Optimise_On_Multi_Sphere([Ux0,dUx0], [1,1],cost,grad,inner_product,args_f,args_IP, max_iters = 100, alpha_k = 1000, LS=LS, CG=True)
