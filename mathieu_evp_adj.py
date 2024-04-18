@@ -79,19 +79,22 @@ dist = d3.Distributor(coord, dtype=np.complex128)
 basis = d3.ComplexFourier(coord, N, bounds=(0, 2*np.pi))
 
 # Fields
-y = dist.Field(bases=basis)
-a = dist.Field()
+y = dist.Field(name='y',bases=basis)
+a = dist.Field(name='a')
 
 # Substitutions
 x = dist.local_grid(basis)
-q = dist.Field()
-cos_2x = dist.Field(bases=basis)
+q = dist.Field(name='q')
+cos_2x = dist.Field(name='cos_2x',bases=basis)
 cos_2x['g'] = np.cos(2 * x)
 dx = lambda A: d3.Differentiate(A, coord)
 
 # Problem
 problem = d3.EVP([y], eigenvalue=a, namespace=locals())
 problem.add_equation("dx(dx(y)) + (a - 2*q*cos_2x)*y = 0")
+
+# Get derivative of L matrix w.r.t q
+dLdq = problem.eqs[0]['L'].sym_diff(q)
 
 # Solver
 solver = problem.build_solver()
@@ -108,15 +111,15 @@ for qi in q_list:
 
     # Use the left eigenvectors to calculate the gradients
     sub_grad=[]
-    dLdq = -2*cos_2x
 
     for index in range(10):
-        solver.set_state(indices[index],solver.subsystems[0])
-        y_dir = y.copy()
         set_state_adjoint(solver,indices[index],solver.subsystems[0])
         y_adj = y.copy()
 
-        grad = np.vdot(y_adj['c'],(-dLdq*y_dir)['c'])
+        solver.set_state(indices[index],solver.subsystems[0])
+        y_dir = y.copy()
+        # Note: now y is the direct-eigenvector and we can evaluate dLdq 
+        grad = np.vdot(y_adj['c'],(-dLdq)['c'])
         sub_grad.append(grad)
     
     evals.append(sorted_evals[:10])
