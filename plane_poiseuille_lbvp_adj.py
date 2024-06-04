@@ -55,12 +55,10 @@ U = dist.Field(name='U',bases=(ybasis))
 U['g'] = y*(2-y)
 Uy = dy(U)
 
-ybasis2 = ybasis.derivative_basis(2)
-
 # # Forcing
-fu = dist.Field(name='fu',bases=(ybasis2))
-fv = dist.Field(name='fv',bases=(ybasis2))
-fw = dist.Field(name='fw',bases=(ybasis2))
+fu = dist.Field(name='fu',bases=(ybasis))
+fv = dist.Field(name='fv',bases=(ybasis))
+fw = dist.Field(name='fw',bases=(ybasis))
 
 omega = dist.Field(name='omega')
 # Problem
@@ -109,13 +107,13 @@ def mult_hermitian(vec,solver):
     # This function multiplies by Phi_M^H 
 
     vec_split = np.split(np.squeeze(vec), 3)
-    solver.state_adj[0]['g'] = M*vec_split[0]
-    solver.state_adj[1]['g'] = M*vec_split[1]
-    solver.state_adj[2]['g'] = M*vec_split[2]
+    solver.dJdX[0]['g'] = M*vec_split[0]
+    solver.dJdX[1]['g'] = M*vec_split[1]
+    solver.dJdX[2]['g'] = M*vec_split[2]
     
-    solver.solve_adjoint()
-     
-    grad = np.hstack((Minv*solver.F_adj[0]['g'],Minv*solver.F_adj[1]['g'],Minv*solver.F_adj[2]['g']))
+    dJdf = solver.solve_adjoint([fu,fv,fw])
+
+    grad = np.hstack((Minv*dJdf[0]['g'],Minv*dJdf[1]['g'],Minv*dJdf[2]['g']))
     
     return grad
 

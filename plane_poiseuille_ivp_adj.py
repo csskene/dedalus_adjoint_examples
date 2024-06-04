@@ -16,9 +16,9 @@ logger = logging.getLogger(__name__)
 Ny = 128
 dtype = np.complex128
 
-alpha = 1
+alpha = 2
 beta = 0
-Re = 5000
+Re = 3000
 
 # Bases and domain
 coords = d3.CartesianCoordinates('y')
@@ -71,7 +71,7 @@ problem.add_equation("v(y=2) = 0")
 problem.add_equation("w(y=0) = 0")
 problem.add_equation("w(y=2) = 0")
 
-solver = problem.build_solver(d3.SBDF2)
+solver = problem.build_solver(d3.SBDF1)
 # Get spectrally accurate weight matrices
 a_, b_ = ybasis.a, ybasis.b
 W_field = dist.Field(name='W_field', bases=(ybasis), adjoint=True)
@@ -149,9 +149,11 @@ ts_tg = time.time()
 gains = []
 times = []
 for niter in range(100)[1::5]:
+    niter=20
     Phi = sp.linalg.LinearOperator((3*Ny,3*Ny),matvec= lambda A: mult(A,solver,niter),rmatvec=lambda A: mult_hermitian(A,solver,niter))
     ts = time.time()
     UH,sigma,V = sp.linalg.svds(Phi,k=1)
+    print(sigma**2)
     logger.info('T = %f, Time taken for SVD = %f s' % (niter*0.5,time.time()-ts))
 
     gains.append(sigma[-1]**2)
