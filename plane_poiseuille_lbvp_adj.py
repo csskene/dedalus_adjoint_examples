@@ -16,11 +16,13 @@ dtype = np.complex128
 alpha = -1
 beta = 0
 Re = 5000
+
 # Bases and domain
 coords = d3.CartesianCoordinates('y')
 dist = d3.Distributor(coords, dtype=dtype)
 ybasis = d3.ChebyshevT(coords['y'], size=Ny,dealias=1, bounds=(0, 2))
 y, = dist.local_grids(ybasis)
+
 # Fields
 u = dist.Field(name='u', bases=(ybasis))
 v = dist.Field(name='v', bases=(ybasis))
@@ -33,20 +35,24 @@ tau_v_2 = dist.Field(name='tau_v_2')
 tau_w_1 = dist.Field(name='tau_w_1')
 tau_w_2 = dist.Field(name='tau_w_2')
 tau_p = dist.Field(name='tau_p')
+
 # Substitutions
 lift_basis = ybasis.derivative_basis(2)
 lift = lambda A, n: d3.Lift(A, lift_basis, n)
 dy = lambda A: d3.Differentiate(A, coords['y'])
+
 # Base flow
 U = dist.Field(name='U',bases=(ybasis))
 U['g'] = y*(2-y)
 Uy = dy(U)
+
 # Forcing
 fu = dist.Field(name='fu',bases=(ybasis))
 fv = dist.Field(name='fv',bases=(ybasis))
 fw = dist.Field(name='fw',bases=(ybasis))
 # Forcing frequency
 omega = dist.Field(name='omega')
+
 # Problem
 problem = d3.LBVP([u,v,w,p, tau_u_1, tau_u_2,tau_v_1, tau_v_2,tau_w_1, tau_w_2], namespace=locals())
 problem.add_equation("1j*omega*u + 1j*alpha*u*U + v*Uy - 1/Re*(dy(dy(u))-alpha**2*u-beta**2*u) + lift(tau_u_1,-1) + lift(tau_u_2,-2) + 1j*alpha*p = fu")
@@ -60,8 +66,10 @@ problem.add_equation("v(y=0) = 0")
 problem.add_equation("v(y=2) = 0")
 problem.add_equation("w(y=0) = 0")
 problem.add_equation("w(y=2) = 0")
+
 # Build solver
 solver = problem.build_solver()
+
 # Get spectrally accurate weight matrices
 a_, b_ = ybasis.a, ybasis.b
 W_field = dist.Field(name='W_field', bases=(ybasis), adjoint=True)
@@ -70,6 +78,7 @@ W = W_field['g']
 # Cholesky decomposition
 M = np.sqrt(W)
 Minv = 1/M
+
 # Create field list for adjoint RHS
 G = []
 for field in solver.state:
@@ -77,6 +86,7 @@ for field in solver.state:
     adj_field.preset_layout('g')
     adj_field.data *=0
     G.append(adj_field)
+
 # Define direct and hermitian transpose multiplication
 def mult(vec,solver):
     # Modified resolvent matrix is R_M = (M R Minv)
@@ -96,6 +106,7 @@ def mult_hermitian(vec,solver):
     cotangents = solver.compute_sensitivities(G)
     grad = np.hstack([Minv*cotangents[f]['g'] for f in [fu,fv,fw]])
     return grad
+
 # Create scipy linear operator
 R = sp.linalg.LinearOperator((3*Ny,3*Ny),matvec= lambda A: mult(A,solver),rmatvec=lambda A: mult_hermitian(A,solver))
 # Adjoint test
@@ -104,6 +115,7 @@ vec2 = np.random.rand(Ny*3) + 1j*np.random.rand(Ny*3)
 term1 = np.vdot(vec2,R@vec1)
 term2 = np.vdot(R.H@vec2,vec1)
 logger.info('Adjoint error = %g' % np.abs(term1-term2))
+
 # Loop over frequencies and compute the gain
 ts_tg = time.time()
 gains = []
@@ -117,6 +129,7 @@ for om in omegas:
     logger.info('om = %f, Time taken for SVD = %f s' % (om,time.time()-ts))
     gains.append(sigma[-1]**2)
 logger.info('Time taken for whole sweep %f' % (time.time()-ts_tg))
+
 # Plot the gain versus time
 fig = plt.figure(figsize=(6, 4))
 plt.semilogy(omegas,gains,'-.')

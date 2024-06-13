@@ -16,11 +16,13 @@ dtype = np.complex128
 alpha = 2
 beta = 0
 Re = 3000
+
 # Bases and domain
 coords = d3.CartesianCoordinates('y')
 dist = d3.Distributor(coords, dtype=dtype)
 ybasis = d3.ChebyshevT(coords['y'], size=Ny,dealias=1, bounds=(0, 2))
 y, = dist.local_grids(ybasis)
+
 # Fields
 u = dist.Field(name='u', bases=(ybasis))
 v = dist.Field(name='v', bases=(ybasis))
@@ -33,14 +35,17 @@ tau_v_2 = dist.Field(name='tau_v_2')
 tau_w_1 = dist.Field(name='tau_w_1')
 tau_w_2 = dist.Field(name='tau_w_2')
 tau_p = dist.Field(name='tau_p')
+
 # Substitutions
 lift_basis = ybasis.derivative_basis(2)
 lift = lambda A, n: d3.Lift(A, lift_basis, n)
 dy = lambda A: d3.Differentiate(A, coords['y'])
+
 # Base flow
 U = dist.Field(name='U',bases=(ybasis))
 U['g'] = y*(2-y)
 Uy = dy(U)
+
 # Problem
 problem = d3.IVP([u,v,w,p, tau_u_1, tau_u_2,tau_v_1, tau_v_2,tau_w_1, tau_w_2], namespace=locals())
 problem.add_equation("dt(u) + 1j*alpha*u*U + v*Uy - 1/Re*(dy(dy(u))-alpha**2*u-beta**2*u) + lift(tau_u_1,-1) + lift(tau_u_2,-2) + 1j*alpha*p = 0")
@@ -54,8 +59,10 @@ problem.add_equation("v(y=0) = 0")
 problem.add_equation("v(y=2) = 0")
 problem.add_equation("w(y=0) = 0")
 problem.add_equation("w(y=2) = 0")
+
 # Create solver
 solver = problem.build_solver(d3.SBDF2)
+
 # Get spectrally accurate weight matrices
 a_, b_ = ybasis.a, ybasis.b
 W_field = dist.Field(name='W_field', bases=(ybasis), adjoint=True)
@@ -64,6 +71,7 @@ W = W_field['g']
 # Cholesky decomposition
 M = np.sqrt(W)
 Minv = 1/M
+
 # Define direct and hermitian transpose multiplication
 def mult(vec,solver,Niter):
     # Modified state transition matrix is Phi_M = (M Phi Minv)
@@ -88,6 +96,7 @@ def mult(vec,solver,Niter):
         raise
     grad = np.hstack([M*f['g'] for f in [u,v,w]])
     return grad
+
 def mult_hermitian(vec,solver,Niter):
     # Modified state transition matrix is Phi_M = (M Phi Minv)
     # This function multiplies by Phi_M^H 
@@ -105,14 +114,17 @@ def mult_hermitian(vec,solver,Niter):
         raise
     grad = np.hstack([Minv*f['g'] for f in solver.state_adj[:3]])
     return grad
+
 # Create linear operator
 Phi = sp.linalg.LinearOperator((3*Ny,3*Ny),matvec= lambda A: mult(A,solver,100),rmatvec=lambda A: mult_hermitian(A,solver,100))
+
 # Adjoint test
 vec1 = np.random.rand(Ny*3) + 1j*np.random.rand(Ny*3)
 vec2 = np.random.rand(Ny*3) + 1j*np.random.rand(Ny*3)
 term2 = np.vdot(Phi.H@vec2,vec1)
 term1 = np.vdot(vec2,Phi@vec1)
 logger.info('Adjoint error = %g' % np.abs(term1-term2))
+
 # Loop over final times and compute transient growth
 ts_tg = time.time()
 gains = []
@@ -126,6 +138,7 @@ for niter in range(100)[1::5]:
     gains.append(sigma[-1]**2)
     times.append(niter*0.5)
 logger.info('Time taken for whole sweep %f' % (time.time()-ts_tg))
+
 # Plot the transient growth verus time
 fig = plt.figure(figsize=(6, 4))
 plt.plot(times,gains,'-.')
