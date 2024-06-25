@@ -76,6 +76,7 @@ problem.add_equation("u(y=1)  = 0")
 problem.add_equation("v(y=-1) = 0")
 problem.add_equation("v(y=1)  = 0")
 solver = problem.build_solver(timestepper)
+solver.stop_iteration = NIter
 
 # Base-flow
 u0['g'] = 1-y**2
@@ -83,63 +84,34 @@ u0['g'] = 1-y**2
 # Cost functional
 J = d3.integ((u**2 + v**2)**p_norm)**(1/p_norm)
 Jadj = J.evaluate().copy_adjoint()
-
+checkpoints = {u: [], v: []}
+timestep_function = lambda : timestep
 # cost and gradient routines
 states_u   = []
 states_v   = []
 def forward(vec):
     # Reset solver
-    solver.iteration = 0
-    solver.initial_iteration = 0
-    solver.evaluator.handlers[0].last_iter_div = -1
-    # reset timestepper
-    solver.timestepper._iteration = 0
-    solver.timestepper._LHS_params = False
-    solver.stop_iteration = NIter
+    solver.reset()
+    # Initial condition
     vec_split = np.split(np.squeeze(vec), 2)
     u['c'] = vec_split[0].reshape((Nx,Ny))
     v['c'] = vec_split[1].reshape((Nx,Ny))
-
-    states_u.clear()
-    states_v.clear()
-    try:
-        while solver.proceed:
-            states_u.append(u['c'].copy())
-            states_v.append(v['c'].copy())
-            solver.step(timestep)
-    except:
-        logger.error('Exception raised, triggering end of main loop.')
-        raise
+    # Evolve
+    checkpoints[u].clear()
+    checkpoints[v].clear()
+    solver.evolve(timestep_function=timestep_function,checkpoints=checkpoints)
     cost = np.max(J['g'])
     return cost
 
-def backward():
-    solver.iteration = NIter
-    solver.timestepper._LHS_params = False
+def backward():    
     # Final time condition
     Jadj['g'] = 1
     cotangents = {}
     cotangents[J] = Jadj
     id = uuid.uuid4()
     _, cotangents =  J.evaluate_vjp(cotangents,id=id,force=True)
-    # Zero adjoint state
-    for f in solver.state_adj:
-        f['c'] *= 0
-    # Add contributions from cotangents (both from J, and from LBVP)
-    for (i,f) in enumerate(solver.state):
-        if f in list(cotangents.keys()):
-            solver.state_adj[i]['c'] += cotangents[f]['c'] 
-    count = -1
-    try:
-        while solver.iteration>0:
-            u['c']   = states_u[count]
-            v['c']   = states_v[count]
-            count -= 1
-            solver.step_adjoint(timestep)
-    except:
-        logger.error('Exception raised, triggering end of main loop.')
-        raise
-    return np.hstack((solver.state_adj[0]['c'].flatten(),solver.state_adj[1]['c'].flatten()))
+    cotangents = solver.compute_sensitivities(cotangents, checkpoints=checkpoints)
+    return np.hstack([cotangents[f]['c'].flatten() for f in [u,v]])
 
 if test:
     # Taylor test

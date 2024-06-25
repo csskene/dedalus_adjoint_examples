@@ -81,7 +81,7 @@ psi_y = dy(psi) + lift(tau_psi1)
 
 # Just for now
 Reinv_f = dist.Field(name='Reinv_f',bases=(xbasis,ybasis))
-Reinv_f['g'] =Reinv 
+Reinv_f['g'] = Reinv 
 
 # Problems
 problem = d3.IVP([u,v,rho,p,tau_u1,tau_u2,tau_v1,tau_v2,tau_rho1,tau_rho2,tau_p,cost_t], namespace=locals())
@@ -98,6 +98,7 @@ problem.add_equation("v(y=1)  = 0")
 problem.add_equation("rhoy(y=-1) = 0")
 problem.add_equation("rhoy(y=1)  = 0")
 solver = problem.build_solver(timestepper)
+solver.stop_iteration = NIter
 
 problem_mix_norm = d3.LBVP([psi, tau_psi1, tau_psi2, tau_psi], namespace=locals())
 problem_mix_norm.add_equation("dx(dx(psi)) + dy(psi_y) + lift(tau_psi2) + tau_psi = rho")
@@ -114,82 +115,38 @@ u0['g'] = 1-y**2
 alpha = 0.5
 J = alpha/2*d3.integ(dx(psi)**2+dy(psi)**2) + (1-alpha)/(2*T)*cost_t
 Jadj = J.evaluate().copy_adjoint()
+timestep_function = lambda : timestep
+checkpoints = {u: [], v: [], rho: []}
 
 # cost and gradient routines
-states_u   = []
-states_v   = []
-states_rho = []
 def forward(vec):
     # Reset solver
-    solver.iteration = 0
-    solver.initial_iteration = 0
-    solver.evaluator.handlers[0].last_iter_div = -1
-    # reset timestepper
-    solver.timestepper._iteration = 0
-    solver.timestepper._LHS_params = False
-    solver.stop_iteration = NIter
+    solver.reset()
+    # Initial condition
     vec_split = np.split(np.squeeze(vec), 2)
     u['c'] = u0['c'] + vec_split[0].reshape((Nx,Ny))
     v['c'] = vec_split[1].reshape((Nx,Ny))
     rho['g'] = -0.5*erf(y/0.125)
     cost_t['g'] = 0
-
-    states_u.clear()
-    states_v.clear()
-    states_rho.clear()
-    try:
-        while solver.proceed:
-            states_u.append(u['c'].copy())
-            states_v.append(v['c'].copy())
-            states_rho.append(rho['c'].copy())
-            solver.step(timestep)
-    except:
-        logger.error('Exception raised, triggering end of main loop.')
-        raise
+    # Evolve IVP
+    checkpoints[u].clear()
+    checkpoints[v].clear()
+    checkpoints[rho].clear()
+    solver.evolve(timestep_function=timestep_function,checkpoints=checkpoints)
     solve_psi.solve()
     cost = np.max(J['g'])
     return cost
 
-# Fields for adjoint LBVP
-G = []
-for field in solve_psi.state:
-    adj_field = field.copy_adjoint()
-    adj_field.preset_layout('g')
-    adj_field.data *= 0
-    G.append(adj_field)
-
 def backward():
-    solver.iteration = NIter
-    solver.timestepper._LHS_params = False
     # Final time condition
     Jadj['g'] = 1
     cotangents = {}
     cotangents[J] = Jadj
     id = uuid.uuid4()
     _, cotangents =  J.evaluate_vjp(cotangents,id=id,force=True)
-    G[0]['c'] = cotangents[psi]['c']
-    cotangents_mix_norm = solve_psi.compute_sensitivities(G)
-    # Zero adjoint state
-    for f in solver.state_adj:
-        f['c'] *= 0
-    # Add contributions from cotangents (both from J, and from LBVP)
-    for (i,f) in enumerate(solver.state):
-        if f in list(cotangents_mix_norm.keys()):
-            solver.state_adj[i]['c'] += cotangents_mix_norm[f]['c']
-        if f in list(cotangents.keys()):
-            solver.state_adj[i]['c'] += cotangents[f]['c'] 
-    count = -1
-    try:
-        while solver.iteration>0:
-            u['c']   = states_u[count]
-            v['c']   = states_v[count]
-            rho['c'] = states_rho[count]
-            count -= 1
-            solver.step_adjoint(timestep)
-    except:
-        logger.error('Exception raised, triggering end of main loop.')
-        raise
-    return np.hstack((solver.state_adj[0]['c'].flatten(),solver.state_adj[1]['c'].flatten()))
+    cotangents = solve_psi.compute_sensitivities(cotangents)
+    cotangents = solver.compute_sensitivities(cotangents,checkpoints=checkpoints)
+    return np.hstack([cotangents[state]['c'].flatten() for state in [u,v]])
 
 if test:
     # Taylor test
@@ -212,7 +169,7 @@ if test:
 
     first = np.abs(np.array(costs)-cost0)
     second = np.abs(np.array(costs)-cost0 - np.array(size)*np.vdot(grad0,vecp))
-
+    print(np.array(first)/np.array(size),np.vdot(grad0,vecp))
     fig = plt.figure(figsize=(6, 4))
     plt.loglog(size,first,label=r'First order')
     plt.loglog(size,second,label=r'Second order')
@@ -220,7 +177,8 @@ if test:
     plt.ylabel(r'Error')
     plt.title(r'Taylor test')
     plt.legend()
-    plt.savefig('optimal_mixing_Taylor_test.png',dpi=200)
+    plt.show()
+    # plt.savefig('optimal_mixing_Taylor_test.png',dpi=200)
 
     print('######## Taylor Test Results ########')
     print('First order  : ',linregress(np.log(size), np.log(first)).slope)

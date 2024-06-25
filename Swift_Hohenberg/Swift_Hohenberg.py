@@ -50,57 +50,31 @@ solver = problem.build_solver(timestepper)
 # Cost functional
 J = -cost_t
 Jadj = J.evaluate().copy_adjoint()
-states = []
+checkpoints = {u: []}
+timestep_function = lambda : timestep
 # Define cost and gradient routines
 def forward(vec):
     # Reset solver
-    solver.iteration = 0
-    solver.initial_iteration = 0
-    solver.evaluator.handlers[0].last_iter_div = -1
-    # reset timestepper
-    solver.timestepper._iteration = 0
-    solver.timestepper._LHS_params = False
+    solver.reset()
     solver.stop_iteration = NIter
     u['c'] = vec/np.sqrt(weight)*np.sqrt(E0/0.5)
     cost_t['c'] = 0
-    states.clear()
-    try:
-        while solver.proceed:
-            states.append(u['c'].copy())
-            solver.step(timestep)
-    except:
-        logger.error('Exception raised, triggering end of main loop.')
-        raise
+    checkpoints[u].clear()
+    solver.evolve(timestep_function=timestep_function,checkpoints=checkpoints)
     cost = np.max(J['g'])
     return cost
 
 def backward():
     # Reset adjoint solver
     solver.iteration = NIter
-    solver.timestepper._LHS_params = False
-    # Adjoint final time condition
+    # Accumulate cotangents
     cotangents = {}
     Jadj['g'] = 1
     cotangents[J] = Jadj
     id = uuid.uuid4()
     _, cotangents =  J.evaluate_vjp(cotangents,id=id,force=True)
-    # Zero adjoint state
-    for f in solver.state_adj:
-        f['c'] *= 0
-    # Add contributions from cotangents
-    for (i,f) in enumerate(solver.state):
-        if f in list(cotangents.keys()):
-            solver.state_adj[i]['c'] += cotangents[f]['c'] 
-    count = -1
-    try:
-        while solver.iteration>0:
-            u['c'] = states[count]
-            count -= 1
-            solver.step_adjoint(timestep)
-    except:
-        logger.error('Exception raised, triggering end of main loop.')
-        raise
-    return solver.state_adj[0]['c']/np.sqrt(weight)*np.sqrt(E0/0.5)
+    cotangents = solver.compute_sensitivities(cotangents, checkpoints=checkpoints)
+    return cotangents[u]['c']/np.sqrt(weight)*np.sqrt(E0/0.5)
 
 if test:
     # Taylor test
@@ -133,6 +107,7 @@ if test:
     plt.legend()
     plt.savefig('Swift_Hohenberg_Taylor_test.png',dpi=200)
 
+    print(np.array(first)/np.array(size),np.vdot(grad0,vecp))
     print('######## Taylor Test Results ########')
     print('First order  : ',linregress(np.log(size), np.log(first)).slope)
     print('Second order : ',linregress(np.log(size), np.log(second)).slope)
