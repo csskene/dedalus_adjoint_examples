@@ -37,7 +37,6 @@ T = 5
 timestep = 5e-3
 timestepper = d3.SBDF2
 NIter = int(T/timestep)
-Niter = 180
 E0 = 0.02
 test = False
 
