@@ -20,6 +20,7 @@ import pymanopt
 from pymanopt.manifolds import Sphere
 from pymanopt.optimizers import ConjugateGradient
 from pymanopt.manifolds.product import Product
+from pymanopt.tools.diagnostics import check_gradient
 
 logger = logging.getLogger(__name__)
 logging.getLogger().setLevel(logging.WARNING)
@@ -84,8 +85,8 @@ W_field['c'] = jacobi.integration_vector(Ny, a_, b_)
 weight *= W_field.allgather_data(layout='g').reshape((1,Ny))
 
 weight_layout = dist.layouts[1]
-local_slice = dist.coeff_layout.slices(u.domain,scales=1)
-gshape = dist.coeff_layout.global_shape(u.domain,scales=1)
+local_slice = weight_layout.slices(u.domain,scales=1)
+gshape = weight_layout.global_shape(u.domain,scales=1)
 local_weight = weight[local_slice]
 local_M_matrix = np.sqrt(local_weight)
 
@@ -226,9 +227,16 @@ else:
     else:
         verbosity = 0
         log_verbosity = 0
-
+    
     optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=100,  log_verbosity=log_verbosity)
-    sol = optimizer.run(problem)
+    # Parallel-safe random point and tangent-vector
+    random_point = manifold.random_point()
+    random_point = comm.bcast(random_point,root=0)
+    random_tangent_vector = manifold.random_tangent_vector(random_point)
+    random_tangent_vector = comm.bcast(random_tangent_vector,root=0)
+    if test:
+        check_gradient(problem, x=random_point,d=random_tangent_vector)
+    sol = optimizer.run(problem, initial_point=random_point)
 
     if comm.rank==0:
         iterations     = optimizer._log["iterations"]["iteration"]
