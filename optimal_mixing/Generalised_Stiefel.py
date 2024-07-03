@@ -14,6 +14,7 @@ from pymanopt.tools.multi import (
 class Generalised_Stiefel(Manifold):
     r"""
     TODO: Update docstring for Generalised case
+    TODO: Matmul using sparse matrices for k>1
     The (product) Stiefel manifold.
 
     The Stiefel manifold :math:`\St(n, p)` is the manifold of orthonormal ``n x
@@ -104,9 +105,10 @@ class Generalised_Stiefel(Manifold):
         return np.sqrt(self.inner_product(point, tangent_vector, tangent_vector))
 
     def random_point(self):
-        point = self.guf(np.random.normal(size=(self._k, self._n, self._p)))
         if self._k == 1:
-            return point[0]
+            point = self.guf(np.random.normal(size=(self._n, self._p)))
+        else:
+            point = self.guf(np.random.normal(size=(self._k, self._n, self._p)))
         return point
 
     def random_tangent_vector(self, point):
