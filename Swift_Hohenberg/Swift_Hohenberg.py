@@ -9,11 +9,16 @@ import numpy as np
 from dedalus import public as d3
 import logging
 import matplotlib.pyplot as plt
-from scipy.stats import linregress
 import pymanopt
-from pymanopt.manifolds import Sphere
 from pymanopt.optimizers import ConjugateGradient
+from pymanopt.tools.diagnostics import check_gradient
 import uuid
+import scipy.sparse as sp
+
+# Just for now
+import sys
+sys.path.append('../manifolds')
+from Generalised_Stiefel import Generalised_Stiefel
 
 logger = logging.getLogger(__name__)
 logging.getLogger().setLevel(logging.WARNING)
@@ -57,7 +62,8 @@ def forward(vec):
     # Reset solver
     solver.reset()
     solver.stop_iteration = NIter
-    u['c'] = vec/np.sqrt(weight)*np.sqrt(E0/0.5)
+    # Scale to have energy E0
+    u['c'] = vec[:,0]*np.sqrt(E0/0.5)
     cost_t['c'] = 0
     checkpoints[u].clear()
     solver.evolve(timestep_function=timestep_function,checkpoints=checkpoints)
@@ -74,50 +80,12 @@ def backward():
     id = uuid.uuid4()
     _, cotangents =  J.evaluate_vjp(cotangents,id=id,force=True)
     cotangents = solver.compute_sensitivities(cotangents, checkpoints=checkpoints)
-    return cotangents[u]['c']/np.sqrt(weight)*np.sqrt(E0/0.5)
+    return cotangents[u]['c']*np.sqrt(E0/0.5)
 
-if test:
-    # Taylor test
-    vec0 = np.random.rand(N)
-    vecp = np.random.rand(N)
-    u0.fill_random('g');u0['c'];u0['g']
-    u0.low_pass_filter(0.3)
-    vec0 = u0['c']
-    vecp = u0['c']
-    cost0 = forward(vec0)
-    grad0 = backward()
-
-    eps = 1e-1
-    costs = []
-    size = []
-    for i in range(10):
-        costp = forward(vec0+eps*vecp)
-        costs.append(costp)
-        size.append(eps)
-        eps /= 2
-
-    first = np.abs(np.array(costs)-cost0)
-    second = np.abs(np.array(costs)-cost0 - np.array(size)*np.vdot(grad0,vecp))
-    fig = plt.figure(figsize=(6, 4))
-    plt.loglog(size,first,label=r'First order')
-    plt.loglog(size,second,label=r'Second order')
-    plt.xlabel(r'$\epsilon$')
-    plt.ylabel(r'Error')
-    plt.title(r'Taylor test')
-    plt.legend()
-    plt.savefig('Swift_Hohenberg_Taylor_test.png',dpi=200)
-
-    print(np.array(first)/np.array(size),np.vdot(grad0,vecp))
-    print('######## Taylor Test Results ########')
-    print('First order  : ',linregress(np.log(size), np.log(first)).slope)
-    print('Second order : ',linregress(np.log(size), np.log(second)).slope)
-    print('#####################################')
-
-# Perform the optimisation
-# Initial guess
-vec0 = np.random.rand(N)
 # Manifold for optimisation
-manifold = Sphere(N)
+weight_sp = sp.diags(weight.flatten())
+weight_inv = sp.diags(1/weight.flatten())
+manifold = Generalised_Stiefel(N, 1, weight_sp, Binv=weight_inv, k=1, retraction="polar")
 
 @pymanopt.function.numpy(manifold)  
 def cost(vecU):
@@ -125,29 +93,33 @@ def cost(vecU):
 
 @pymanopt.function.numpy(manifold)
 def grad(vecU):
-    forward(vecU)
-    grad = backward()
+    # Can comment cost evaluation if sure that optimiser always runs cost before gradient internally.
+    # forward(vecU)
+    grad = backward().reshape((N,1))
     return grad
 
 problem = pymanopt.Problem(manifold, cost, euclidean_gradient=grad)
 
+# check_gradient(problem)
 verbosity = 2
 log_verbosity = 1
 
-norm = np.vdot(vec0,weight*vec0)
-vec0 /= np.sqrt(norm)
-vec0 *= np.sqrt(weight)
 costs = []
-E_list = [0.2159*1.02]
+E_list = [0.2159*0.98,0.2159*1.02]
+opt_points = []
 for E0 in E_list:
-    optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=100,  log_verbosity=log_verbosity, min_gradient_norm=1e-3)
-    sol = optimizer.run(problem, initial_point = vec0)
+    # Perform the optimisation
+    optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=100,  log_verbosity=log_verbosity, min_gradient_norm=1e-6)
+    sol = optimizer.run(problem)
+    opt_points.append(sol.point)
     costs.append(sol.cost)
 
-u0['c'] = sol.point/np.sqrt(weight)
-fig = plt.figure(figsize=(6, 4))
-plt.plot(x,u0['g'])
-plt.xlabel(r'$x$')
-plt.ylabel(r'$u(x)$')
-plt.title(r'Optimal initial condition')
-plt.savefig('Swift_Hohenberg_optimal_initial_condition.png',dpi=200)
+# Get output for optimal seed (E1)
+snapshots_E1 = solver.evaluator.add_file_handler('snapshots_E1', sim_dt = 0.5, mode='overwrite')
+snapshots_E1.add_task(u)
+cost(opt_points[0])
+
+# Get output for optimal seed (E2)
+snapshots_E2 = solver.evaluator.add_file_handler('snapshots_E2', sim_dt = 0.5, mode='overwrite')
+snapshots_E2.add_task(u)
+cost(opt_points[1])
