@@ -17,9 +17,13 @@ from dedalus.tools import jacobi
 import uuid
 
 import pymanopt
-from Generalised_Stiefel import Generalised_Stiefel
 from pymanopt.optimizers import ConjugateGradient
 from pymanopt.tools.diagnostics import check_gradient
+
+# Just for now
+import sys
+sys.path.append('../manifolds')
+from Generalised_Stiefel import Generalised_Stiefel
 
 logger = logging.getLogger(__name__)
 logging.getLogger().setLevel(logging.WARNING)
@@ -38,7 +42,7 @@ timestep = 1e-2
 timestepper = d3.RK222
 NIter = int(T/timestep)
 E0 = 0.02
-test = True 
+test = False
 if test:
     # Faster NIter for test for now
     NIter = 30  
