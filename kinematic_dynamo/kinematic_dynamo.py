@@ -33,6 +33,7 @@ from Generalised_Stiefel import Generalised_Stiefel
 
 # Parameters
 N = 32
+Rm = 1
 dealias = 1
 timestep = 1e-3
 timestepper = d3.RK222
@@ -84,7 +85,7 @@ lap = lambda A: dx(dx(A)) + dy(dy(A)) + dz(dz(A))
 Bx = dy(Az) - dz(Ay)
 By = dz(Ax) - dx(Az)
 Bz = dx(Ay) - dy(Ax)
-η = 0.5
+η = 1/Rm
 
 # Global weight matrix (definitely better ways!)
 weight = np.ones((N,N,N))*np.pi**3
