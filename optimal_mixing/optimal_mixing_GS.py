@@ -217,7 +217,7 @@ problem = pymanopt.Problem(manifold, cost, euclidean_gradient=grad)
 
 verbosity = 2*(comm.rank==0)
 log_verbosity = 1*(comm.rank==0)
-optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=100,  log_verbosity=log_verbosity)
+optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=100,  log_verbosity=log_verbosity, min_gradient_norm=1e-3)
 
 # Parallel-safe random point and tangent-vector
 random_point = manifold.random_point()
@@ -234,7 +234,7 @@ else:
         iterations     = optimizer._log["iterations"]["iteration"]
         costs          = optimizer._log["iterations"]["cost"]
         gradient_norms = optimizer._log["iterations"]["gradient_norm"]
-        np.savez('convergence', iterations=iterations, costs=costs, gradient_norms=gradient_norms, min_gradient_norm=1e-3)
+        np.savez('convergence', iterations=iterations, costs=costs, gradient_norms=gradient_norms)
 
     # Get output for optimal seed
     snapshots = solver.evaluator.add_file_handler('snapshots', sim_dt = 0.1, mode='overwrite')
