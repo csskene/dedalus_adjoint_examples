@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 logging.getLogger().setLevel(logging.WARNING)
 # Parameters
 N = 256
-dealias = 1
+dealias = 2
 timestep = 0.05
 timestepper = d3.SBDF2
 test = True
@@ -64,9 +64,13 @@ def forward(vec):
     solver.stop_iteration = NIter
     # Scale to have energy E0
     u['c'] = vec[:,0]*np.sqrt(E0/0.5)
+    # Uncomment to check norms
+    # print('sin(0)' ,vec[1])
+    # print('Norm', E0*np.vdot(vec,weight_sp@vec))
+    # print('Dedalus', (1/12*d3.integ(u**2))['g'])
     cost_t['c'] = 0
     checkpoints[u].clear()
-    solver.evolve(timestep_function=timestep_function,checkpoints=checkpoints)
+    solver.evolve(timestep_function=timestep_function, checkpoints=checkpoints)
     cost = np.max(J['g'])
     return cost
 
@@ -104,14 +108,21 @@ problem = pymanopt.Problem(manifold, cost, euclidean_gradient=grad)
 verbosity = 2
 log_verbosity = 1
 
+# Must create initial point manually to avoid sin(0) mode being populated
+u.fill_random(layout='c')
+norm = np.sqrt(np.max((d3.integ(u**2)/6)['g']))
+initial_point = u['c']/norm
+initial_point = initial_point.reshape(-1, 1)
+
 costs = []
 E_list = [0.2159*0.98,0.2159*1.02]
 opt_points = []
 for E0 in E_list:
     # Perform the optimisation
     optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=100,  log_verbosity=log_verbosity, min_gradient_norm=1e-6)
-    sol = optimizer.run(problem)
+    sol = optimizer.run(problem, initial_point=initial_point)
     opt_points.append(sol.point)
+    initial_point = sol.point
     costs.append(sol.cost)
 
 # Get output for optimal seed (E1)
