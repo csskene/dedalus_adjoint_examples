@@ -34,7 +34,7 @@ from Generalised_Stiefel import Generalised_Stiefel
 # Parameters
 N = 32
 Rm = 1
-dealias = 1
+dealias = 3/2
 timestep = 1e-3
 timestepper = d3.RK222
 NIter = int(1/timestep)
@@ -64,12 +64,9 @@ w = dist.Field(name='w', bases=(xbasis, ybasis, zbasis))
 Ax = dist.Field(name='Ax', bases=(xbasis, ybasis, zbasis))
 Ay = dist.Field(name='Ay', bases=(xbasis, ybasis, zbasis))
 Az = dist.Field(name='Az', bases=(xbasis, ybasis, zbasis))
-Bx_init = dist.Field(name='Bx_init', bases=(xbasis, ybasis, zbasis))
-By_init = dist.Field(name='By_init', bases=(xbasis, ybasis, zbasis))
-Bz_init = dist.Field(name='Bz_init', bases=(xbasis, ybasis, zbasis))
-Bx_clean = dist.Field(name='Bx_clean', bases=(xbasis, ybasis, zbasis))
-By_clean = dist.Field(name='By_clean', bases=(xbasis, ybasis, zbasis))
-Bz_clean = dist.Field(name='Bz_clean', bases=(xbasis, ybasis, zbasis))
+Ax_init = dist.Field(name='Ax_init', bases=(xbasis, ybasis, zbasis))
+Ay_init = dist.Field(name='Ay_init', bases=(xbasis, ybasis, zbasis))
+Az_init = dist.Field(name='Az_init', bases=(xbasis, ybasis, zbasis))
 Cx = dist.Field(name='Cx')
 Cy = dist.Field(name='Cy')
 Cz = dist.Field(name='Cz')
@@ -116,17 +113,17 @@ problem.add_equation("dt(w) = 0")
 solver = problem.build_solver(timestepper)
 solver.stop_iteration = NIter
 
-# Problem for vector potential
-problem_A = d3.LBVP([Ax, Ay, Az, phi, tau_phi, Cx, Cy, Cz], namespace=locals())
-problem_A.add_equation("-lap(Ax) + dx(phi) + Cx = dy(Bz_clean) - dz(By_clean)")
-problem_A.add_equation("-lap(Ay) + dy(phi) + Cy = dz(Bx_clean) - dx(Bz_clean)")
-problem_A.add_equation("-lap(Az) + dz(phi) + Cz = dx(By_clean) - dy(Bx_clean)")
-problem_A.add_equation("dx(Ax) + dy(Ay) + dz(Az) + tau_phi = 0")
-problem_A.add_equation("integ(phi) = 0")
-problem_A.add_equation("integ(Ax) = 0")
-problem_A.add_equation("integ(Ay) = 0")
-problem_A.add_equation("integ(Az) = 0")
-solver_A = problem_A.build_solver()
+# # Problem for vector potential
+# problem_A = d3.LBVP([Ax, Ay, Az, phi, tau_phi, Cx, Cy, Cz], namespace=locals())
+# problem_A.add_equation("-lap(Ax) + dx(phi) + Cx = dy(Bz_clean) - dz(By_clean)")
+# problem_A.add_equation("-lap(Ay) + dy(phi) + Cy = dz(Bx_clean) - dx(Bz_clean)")
+# problem_A.add_equation("-lap(Az) + dz(phi) + Cz = dx(By_clean) - dy(Bx_clean)")
+# problem_A.add_equation("dx(Ax) + dy(Ay) + dz(Az) + tau_phi = 0")
+# problem_A.add_equation("integ(phi) = 0")
+# problem_A.add_equation("integ(Ax) = 0")
+# problem_A.add_equation("integ(Ay) = 0")
+# problem_A.add_equation("integ(Az) = 0")
+# solver_A = problem_A.build_solver()
 
 # Problems for divergence and average cleaning
 problem_u = d3.LBVP([u, v, w, Pi, tau_Pi, Cx, Cy, Cz], namespace=locals())
@@ -140,22 +137,21 @@ problem_u.add_equation("integ(v) = 0")
 problem_u.add_equation("integ(w) = 0")
 solver_u = problem_u.build_solver()
 
-problem_B = d3.LBVP([Bx_clean, By_clean, Bz_clean, Pi, tau_Pi, Cx, Cy, Cz], namespace=locals())
-problem_B.add_equation("-Bx_clean + dx(Pi) + Cx = -Bx_init")
-problem_B.add_equation("-By_clean + dy(Pi) + Cy = -By_init")
-problem_B.add_equation("-Bz_clean + dz(Pi) + Cz = -Bz_init")
-problem_B.add_equation("dx(Bx_clean) + dy(By_clean) + dz(Bz_clean) + tau_Pi = 0")
-problem_B.add_equation("integ(Pi) = 0")
-problem_B.add_equation("integ(Bx_clean) = 0")
-problem_B.add_equation("integ(By_clean) = 0")
-problem_B.add_equation("integ(Bz_clean) = 0")
-solver_B = problem_B.build_solver()
+problem_A = d3.LBVP([Ax, Ay, Az, Pi, tau_Pi, Cx, Cy, Cz], namespace=locals())
+problem_A.add_equation("-Ax + dx(Pi) + Cx = -Ax_init")
+problem_A.add_equation("-Ay + dy(Pi) + Cy = -Ay_init")
+problem_A.add_equation("-Az + dz(Pi) + Cz = -Az_init")
+problem_A.add_equation("dx(Ax) + dy(Ay) + dz(Az) + tau_Pi = 0")
+problem_A.add_equation("integ(Pi) = 0")
+problem_A.add_equation("integ(Ax) = 0")
+problem_A.add_equation("integ(Ay) = 0")
+problem_A.add_equation("integ(Az) = 0")
+solver_A = problem_A.build_solver()
 
-J = -d3.Average(Bx**2 + By**2 + Bz**2)
+J = -d3.Average(Ax**2 + Ay**2 + Az**2)
 Jadj = J.evaluate().copy_adjoint()
 timestep_function = lambda : timestep
 checkpoints = {Ax: [], Ay: [], Az: []}
-
 def forward(vecs):
     # Reset solver
     solver.reset()
@@ -164,14 +160,12 @@ def forward(vecs):
     for i, vec in enumerate([u_init, v_init, w_init]):
         vec['c'] = vec_split[i].reshape(vec[weight_layout].shape)
     vec_split = np.split(vecs[1], 3)
-    for i, vec in enumerate([Bx_init, By_init, Bz_init]):
+    for i, vec in enumerate([Ax_init, Ay_init, Az_init]):
         vec['c'] = vec_split[i].reshape(vec[weight_layout].shape)
     for key in list(checkpoints.keys()):
         checkpoints[key].clear()
     # Remove divergence and average
     solver_u.solve()
-    solver_B.solve()
-    # Solve for A
     solver_A.solve()
     # Evolve IVP and compute cost
     solver.evolve(timestep_function=timestep_function, checkpoints=checkpoints)
@@ -186,9 +180,8 @@ def backward():
     cotangents = solver.compute_sensitivities(cotangents, checkpoints=checkpoints)
     cotangents = solver_A.compute_sensitivities(cotangents)
     cotangents = solver_u.compute_sensitivities(cotangents)
-    cotangents = solver_B.compute_sensitivities(cotangents)
     grad_u = np.hstack([(cotangents[state]['c']).flatten() for state in [u_init, v_init, w_init]])
-    grad_B = np.hstack([(cotangents[state]['c']).flatten() for state in [Bx_init, By_init, Bz_init]])
+    grad_B = np.hstack([(cotangents[state]['c']).flatten() for state in [Ax_init, Ay_init, Az_init]])
     return [grad_u, grad_B]
 
 # Create the manifold
@@ -211,9 +204,9 @@ u_grad = u.copy_adjoint()
 v_grad = v.copy_adjoint()
 w_grad = w.copy_adjoint()
 
-Bx_grad = Bx_init.copy_adjoint()
-By_grad = By_init.copy_adjoint()
-Bz_grad = Bz_init.copy_adjoint()
+Ax_grad = Ax.copy_adjoint()
+Ay_grad = Ay.copy_adjoint()
+Az_grad = Az.copy_adjoint()
 @pymanopt.function.numpy(manifold)
 def grad(vecU,vecB):
     # Can comment cost evaluation if sure that optimiser always runs cost before gradient internally.
@@ -225,15 +218,15 @@ def grad(vecU,vecB):
     w_grad[weight_layout] = local_w.reshape(w_grad[weight_layout].shape)
     gradU = np.hstack([v.allgather_data(layout=weight_layout).flatten() for v in [u_grad, v_grad, w_grad]])
     # Reshape to manifold shape
-    gradU = gradU.reshape((len(gradU),1))
+    gradU = gradU.reshape((-1, 1))
 
-    local_Bx, local_By, local_Bz = np.split(local_grad[1],3)
-    Bx_grad[weight_layout] = local_Bx.reshape(Bx_grad[weight_layout].shape)
-    By_grad[weight_layout] = local_By.reshape(By_grad[weight_layout].shape)
-    Bz_grad[weight_layout] = local_Bz.reshape(Bz_grad[weight_layout].shape)
-    gradB = np.hstack([v.allgather_data(layout=weight_layout).flatten() for v in [Bx_grad, By_grad, Bz_grad]])
+    local_Ax, local_Ay, local_Az = np.split(local_grad[1],3)
+    Ax_grad[weight_layout] = local_Ax.reshape(Ax_grad[weight_layout].shape)
+    Ay_grad[weight_layout] = local_Ay.reshape(Ay_grad[weight_layout].shape)
+    Az_grad[weight_layout] = local_Az.reshape(Az_grad[weight_layout].shape)
+    gradB = np.hstack([v.allgather_data(layout=weight_layout).flatten() for v in [Ax_grad, Ay_grad, Az_grad]])
     # Reshape to manifold shape
-    gradB = gradB.reshape((len(gradU),1))
+    gradB = gradB.reshape((-1, 1))
     return [gradU, gradB]
 
 # Parallel-safe random point and tangent-vector
@@ -247,19 +240,20 @@ log_verbosity = 1*(comm.rank==0)
 problem_opt = pymanopt.Problem(manifold, cost, euclidean_gradient=grad)
 # check_gradient(problem_opt, x=random_point, d=random_tangent_vector)
 # Random divergence-free, zero average initial condition
-for field in [u_init, v_init, w_init, Bx_init, By_init, Bz_init]:
+for field in [u_init, v_init, w_init, Ax_init, Ay_init, Az_init]:
     field.fill_random(layout='c')
     field.low_pass_filter(scales=0.25)
 
 solver_u.solve()
-solver_B.solve()
+solver_A.solve()
 initial_u = np.hstack([f.allgather_data(layout=weight_layout).flatten() for f in [u, v, w]]).reshape(*random_point[0].shape)
-initial_B = np.hstack([f.allgather_data(layout=weight_layout).flatten() for f in [Bx_clean, By_clean, Bz_clean]]).reshape(*random_point[1].shape)
+initial_A = np.hstack([f.allgather_data(layout=weight_layout).flatten() for f in [Ax, Ay, Az]]).reshape(*random_point[1].shape)
 
+# Normalise
 initial_u /= np.sqrt(initial_u.T@weight_sp@initial_u)
-initial_B /= np.sqrt(initial_B.T@weight_sp@initial_B)
+initial_A /= np.sqrt(initial_A.T@weight_sp@initial_A)
 
-initial_point = [initial_u, initial_B]
+initial_point = [initial_u, initial_A]
 optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=100, min_gradient_norm=1e-3, log_verbosity=log_verbosity)
 sol = optimizer.run(problem_opt, initial_point=initial_point)
 
