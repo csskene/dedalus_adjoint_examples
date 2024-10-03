@@ -72,7 +72,7 @@ phi     = dist.Field(name='phi', bases=ball)
 tau_phi2     = dist.Field(name='tau_phi2', bases=sphere)
 
 tau_phi = dist.Field(name='tau_phi')
-# B = d3.curl(A)
+B = d3.curl(A)
 
 ell_func = lambda ell: ell+1
 ellmult = lambda A: d3.SphericalEllProduct(A, coords, ell_func) # mult by (ell+1)
@@ -211,3 +211,14 @@ vec1 /= np.sqrt(vec1.T@weight_sp@vec1)
 vec2 /= np.sqrt(vec2.T@weight_sp@vec2)
 initial_point=[vec1, vec2]
 sol = optimizer.run(problem_opt, initial_point=initial_point)
+
+# Get outputs
+snapshots = solver.evaluator.add_file_handler('snapshots', sim_dt = 0.1)
+snapshots.add_task(u, name='u')
+snapshots.add_task(omega, name='omega')
+snapshots.add_task(B, name='B')
+
+timeseries = solver.evaluator.add_file_handler('timeseries', sim_dt = 1e-3)
+timeseries.add_task(d3.integ(A@A), name='A_int')
+timeseries.add_task(d3.integ(B@B), name='B_int')
+cost(*sol.point)
