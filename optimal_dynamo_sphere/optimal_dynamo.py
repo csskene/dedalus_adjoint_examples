@@ -1,3 +1,10 @@
+"""
+Usage:
+    optimal_dynamo.py [options]
+
+Options:
+    --Rm=<Rm>                   Magnetic Reynolds number [default: 65]
+"""
 import dedalus.public as d3
 import numpy as np
 import uuid
@@ -16,6 +23,11 @@ from pymanopt.tools.diagnostics import check_gradient
 import logging
 logging.getLogger().setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
+import os
+from pathlib import Path
+
+from docopt import docopt
+args = docopt(__doc__)
 
 # Just for now
 import sys
@@ -32,7 +44,10 @@ Nr = 16
 Ro = 1
 dealias = 1
 timestep = 1e-3
-Rm = 65
+
+Rm = float(args['--Rm'])
+if rank==0:
+    print('Running with Rm: %f' % Rm)
 
 factors = [[ncpu//i,i] for i in range(1,int(np.sqrt(ncpu))+1) if np.mod(ncpu,i)==0]
 score = np.array([f[1]/f[0] for f in factors])
@@ -196,7 +211,7 @@ random_tangent_vector = comm.bcast(random_tangent_vector, root=0)
 verbosity = 2*(comm.rank==0)
 log_verbosity = 1*(comm.rank==0)
 problem_opt = pymanopt.Problem(manifold, cost, euclidean_gradient=grad)
-optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=100, min_gradient_norm=1e-3, log_verbosity=1)
+optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=400, min_gradient_norm=1e-3, log_verbosity=1)
 solver.stop_iteration = int(2/timestep)
 # check_gradient(problem_opt, x=random_point, d=random_tangent_vector)
 
@@ -213,12 +228,19 @@ initial_point=[vec1, vec2]
 sol = optimizer.run(problem_opt, initial_point=initial_point)
 
 # Get outputs
-snapshots = solver.evaluator.add_file_handler('snapshots', sim_dt = 0.1)
+
+# Make data directory
+data_dir = 'data_Rm_{0:5.02e}'.format(Rm)
+if MPI.COMM_WORLD.rank == 0:
+    if not os.path.exists(data_dir):
+        os.mkdir(data_dir)
+
+snapshots = solver.evaluator.add_file_handler(Path("{0:s}/snapshots".format(data_dir)), sim_dt = 0.1)
 snapshots.add_task(u, name='u')
 snapshots.add_task(omega, name='omega')
 snapshots.add_task(B, name='B')
 
-timeseries = solver.evaluator.add_file_handler('timeseries', sim_dt = 1e-3)
+timeseries = solver.evaluator.add_file_handler(Path("{0:s}/timeseries".format(data_dir)), sim_dt = 1e-3)
 timeseries.add_task(d3.integ(A@A), name='A_int')
 timeseries.add_task(d3.integ(B@B), name='B_int')
 cost(*sol.point)
