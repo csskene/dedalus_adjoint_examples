@@ -48,7 +48,7 @@ NIter = int(4/timestep)
 
 if rank==0:
     print('Running with Rm: %f' % Rm)
-    
+
 # Create bases and domain
 coords = d3.CartesianCoordinates('x', 'y', 'z')
 
@@ -223,7 +223,7 @@ if MPI.COMM_WORLD.rank == 0:
     if not os.path.exists(data_dir):
         os.mkdir(data_dir)
 
-snapshots = solver.evaluator.add_file_handler('snapshots', sim_dt = 0.1, mode='overwrite')
+snapshots = solver.evaluator.add_file_handler(Path("{0:s}/snapshots".format(data_dir)), sim_dt = 0.1, mode='overwrite')
 snapshots.add_tasks(u, name='u')
 snapshots.add_task(B, name='B')
 
