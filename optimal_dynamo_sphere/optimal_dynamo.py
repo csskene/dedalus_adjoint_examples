@@ -72,7 +72,6 @@ er = dist.VectorField(coords, name='er')
 er['g'][2] = 1
 
 omega  = dist.VectorField(coords, name='omega', bases=ball)
-omega_clean  = dist.VectorField(coords, name='omega_clean', bases=ball)
 
 u = dist.VectorField(coords, name='u', bases=ball)
 tau_u = dist.VectorField(coords, name='tau_u', bases=sphere)
@@ -94,15 +93,8 @@ ellmult = lambda A: d3.SphericalEllProduct(A, coords, ell_func) # mult by (ell+1
 
 lift = lambda A : d3.Lift(A, ball, -1)
 
-problem_omega = d3.LBVP([omega_clean, phi, tau_phi, tau_phi2], namespace=locals())
-problem_omega.add_equation("omega_clean + grad(phi) = omega")
-problem_omega.add_equation("div(omega_clean) + tau_phi + lift(tau_phi2) = 0")
-problem_omega.add_equation("integ(phi) = 0")
-problem_omega.add_equation("phi(r=Ro) = 0")
-solver_omega = problem_omega.build_solver()
-
 problem_u = d3.LBVP([u, tau_u, V, tau_V], namespace=locals())
-problem_u.add_equation("-lap(u) + grad(V) + lift(tau_u) = curl(omega_clean)")
+problem_u.add_equation("-lap(u) + grad(V) + lift(tau_u) = curl(omega)")
 problem_u.add_equation("div(u) + tau_V = 0")
 problem_u.add_equation("integ(V) = 0")
 problem_u.add_equation("u(r=Ro) = 0")
@@ -135,13 +127,7 @@ def forward(vecs):
     vec_split = np.split(np.squeeze(vecs[1]), 3)
     for i in range(3):
         A[layout][i] = vec_split[i].reshape(lshape)
-    solver_omega.solve()
     solver_u.solve()
-    # print('max', np.max(V['g']))
-    # print('curl u', np.max((d3.curl(u)-omega)['g']))
-    # print('curl u2', np.max((d3.curl(u)-omega_clean)['g']))
-    # print('div A', np.max(d3.div(A)['g']))
-    # Reset solver
     solver.reset()
     for key in list(checkpoints.keys()):
         checkpoints[key].clear()
@@ -156,7 +142,6 @@ def backward():
     _, cotangents =  J.evaluate_vjp(cotangents, id=uuid.uuid4(), force=True)
     cotangents = solver.compute_sensitivities(cotangents, checkpoints=checkpoints)
     cotangents = solver_u.compute_sensitivities(cotangents)
-    cotangents = solver_omega.compute_sensitivities(cotangents)
     grad_omega = np.hstack([(cotangents[omega][layout][idx]).flatten() for idx in [0,1,2]])
     grad_B = np.hstack([(cotangents[A][layout][idx]).flatten() for idx in [0,1,2]])
     return [grad_omega, grad_B]
