@@ -42,9 +42,9 @@ args = docopt(__doc__)
 N = 24
 Rm = float(args['--Rm'])
 dealias = 3/2
-timestep = 1e-3
+timestep = 1e-2
 timestepper = d3.RK222
-NIter = int(4/timestep)
+NIter = int(7/timestep)
 
 if rank==0:
     print('Running with Rm: %f' % Rm)
@@ -107,7 +107,7 @@ problem_u.add_equation("integ(Pi) = 0")
 problem_u.add_equation("integ(u) = 0")
 solver_u = problem_u.build_solver()
 
-J = -d3.Average(A@A)
+J = -np.log(d3.Average(A@A))
 Jadj = J.evaluate().copy_adjoint()
 timestep_function = lambda : timestep
 checkpoints = {A: []}
@@ -224,11 +224,12 @@ if MPI.COMM_WORLD.rank == 0:
         os.mkdir(data_dir)
 
 snapshots = solver.evaluator.add_file_handler(Path("{0:s}/snapshots".format(data_dir)), sim_dt = 0.1, mode='overwrite')
-snapshots.add_tasks(u, name='u')
+snapshots.add_task(u, name='u')
 snapshots.add_task(B, name='B')
+snapshots.add_task(u@d3.curl(u), name='helicity')
 
 timeseries = solver.evaluator.add_file_handler(Path("{0:s}/timeseries".format(data_dir)), sim_dt = 1e-3)
-timeseries.add_task(d3.integ(A@A), name='A_int')
-timeseries.add_task(d3.integ(B@B), name='B_int')
+timeseries.add_task(d3.Average(A@A), name='A_int')
+timeseries.add_task(d3.Average(B@B), name='B_int')
 
 cost(sol.point[0], sol.point[1])
