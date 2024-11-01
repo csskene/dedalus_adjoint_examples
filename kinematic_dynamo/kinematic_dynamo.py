@@ -42,9 +42,9 @@ args = docopt(__doc__)
 N = 24
 Rm = float(args['--Rm'])
 dealias = 3/2
-timestep = 1e-2
+timestep = 5e-3
 timestepper = d3.RK222
-NIter = int(7/timestep)
+NIter = int(2/timestep)
 
 if rank==0:
     print('Running with Rm: %f' % Rm)
@@ -58,9 +58,9 @@ score = np.array([f[1]/f[0] for f in factors])
 mesh = factors[np.argmax(score)]
 
 dist = d3.Distributor(coords, dtype=np.float64, mesh=mesh)
-xbasis = d3.RealFourier(coords['x'], size=N, bounds=(0, 2*np.pi), dealias=dealias)
-ybasis = d3.RealFourier(coords['y'], size=N, bounds=(0, 2*np.pi), dealias=dealias)
-zbasis = d3.RealFourier(coords['z'], size=N, bounds=(0, 2*np.pi), dealias=dealias)
+xbasis = d3.RealFourier(coords['x'], size=N, bounds=(0, 1), dealias=dealias)
+ybasis = d3.RealFourier(coords['y'], size=N, bounds=(0, 1), dealias=dealias)
+zbasis = d3.RealFourier(coords['z'], size=N, bounds=(0, 1), dealias=dealias)
 x, y, z = dist.local_grids(xbasis, ybasis, zbasis)
 
 # Fields
@@ -75,7 +75,6 @@ tau_Pi = dist.Field(name='tau_Pi')
 
 # Substitutions
 B = d3.curl(A)
-η = 1/Rm
 
 # Global weight matrix (definitely better ways!)
 weight = np.ones((N,N,N))*np.pi**3
@@ -85,13 +84,13 @@ for i in range(N):
         for k in range(N):
             p = np.count_nonzero(np.array([i, j, k])==0)
             weight[i, j, k] *= 2**p
-weight /= (2*np.pi)**3
+# weight /= 1
 weight_layout = dist.coeff_layout
 local_slice = weight_layout.slices(u.domain, scales=1)
 gshape = weight_layout.global_shape(u.domain, scales=1)
 
 problem = d3.IVP([A, phi, tau_phi, u, C], namespace=locals())
-problem.add_equation("dt(A) + grad(phi) - η*lap(A) + C = cross(u, B)")
+problem.add_equation("dt(A) + grad(phi) - lap(A) + C = Rm*cross(u, B)")
 problem.add_equation("div(A) + tau_phi = 0")
 problem.add_equation("integ(A) = 0")
 problem.add_equation("integ(phi) = 0")
