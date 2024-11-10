@@ -117,8 +117,8 @@ Reinv_f['g'][0] = 2*Reinv
 
 # Problems
 problem = d3.IVP([u, rho, p, tau_u1, tau_u2, tau_rho1, tau_rho2, tau_p], namespace=locals())
-problem.add_equation("dt(u) - Reinv*div(grad_u) + grad(p) + lift2(tau_u2) + Ri*ey*rho = -u@grad(u)")
-problem.add_equation("dt(rho) - Peinv*div(grad_rho) + lift2(tau_rho2) + u0@grad(rho) = -u@grad(rho)")
+problem.add_equation("dt(u) - Reinv*div(grad_u) + grad(p) + lift2(tau_u2) + Ri*ey*rho = Reinv_f -u@grad(u)")
+problem.add_equation("dt(rho) - Peinv*div(grad_rho) + lift2(tau_rho2) = -div(u*rho)")
 # problem.add_equation("dt(cost_t) = integ(u@u)")
 problem.add_equation("trace(grad_u) + tau_p = 0")
 problem.add_equation("integ(p) = 0")
@@ -139,6 +139,7 @@ solve_psi.solve()
 
 # Base-flow
 u0['g'][0] = 1-y**2
+
 # Cost functional
 alpha = 1
 # J = (alpha/2*d3.integ(d3.grad(psi)@d3.grad(psi)) - (1-alpha)/(2*T)*cost_t)
@@ -157,6 +158,8 @@ def forward(vec):
     for i in range(2):
         u[weight_layout][i] = vec_split[i].reshape(lshape)
     u.change_scales(1)
+    # Add base-flow
+    u[weight_layout] += u0[weight_layout]
     rho.change_scales(1)
     rho['g'] = -0.5*erf(y/0.125)
     cost_t['g'] = 0
@@ -220,7 +223,7 @@ problem = pymanopt.Problem(manifold, cost, euclidean_gradient=grad)
 
 verbosity = 2*(comm.rank==0)
 log_verbosity = 1*(comm.rank==0)
-optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=500,  log_verbosity=log_verbosity, min_gradient_norm=1e-3)
+optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=100,  log_verbosity=log_verbosity, min_gradient_norm=1e-3)
 
 # Parallel-safe random point and tangent-vector
 random_point = manifold.random_point()
