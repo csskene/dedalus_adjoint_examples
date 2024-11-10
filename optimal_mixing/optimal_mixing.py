@@ -20,6 +20,7 @@ from mpi4py import MPI
 from dedalus.extras.flow_tools import GlobalArrayReducer
 from dedalus.tools import jacobi
 import uuid
+from pathlib import Path
 
 import pymanopt
 from pymanopt.optimizers import ConjugateGradient
@@ -30,19 +31,19 @@ import sys
 sys.path.append('../manifolds')
 from generalized_stiefel import GeneralizedStiefel
 logger = logging.getLogger(__name__)
-logging.getLogger().setLevel(logging.WARNING)
+# logging.getLogger().setLevel(logging.WARNING)
 comm = MPI.COMM_WORLD
 reducer = GlobalArrayReducer(comm)
 from docopt import docopt
 # Parameters
-Nx = 256
-Ny = 192
+Nx = 128
+Ny = 128
 Reinv = 1./500
 Peinv = 1./500
 Ri = 0.05
 dealias = 3/2
-T = 10
-timestep = 1e-2
+T = 5
+timestep = 5e-3
 timestepper = d3.RK222
 NIter = int(T/timestep)
 E0 = 0.02
@@ -50,7 +51,7 @@ args = docopt(__doc__)
 test    = args['--test']
 if test:
     # Faster NIter for test for now
-    NIter = 30  
+    NIter = 100
 
 # Domain and bases
 coords = d3.CartesianCoordinates('x', 'y')
@@ -66,7 +67,7 @@ tau_u1 = dist.VectorField(coords, name='tau_u1', bases=(xbasis))
 tau_u2 = dist.VectorField(coords, name='tau_u2', bases=(xbasis))
 p  = dist.Field(name='p', bases=(xbasis,ybasis))
 tau_p  = dist.Field(name='tau_p')
-u0 = dist.VectorField(coords, name='u0', bases=(xbasis,ybasis))
+u0 = dist.VectorField(coords, name='u0', bases=(ybasis))
 rho  = dist.Field(name='rho', bases=(xbasis,ybasis))
 tau_rho1 = dist.Field(name='tau_rho1', bases=(xbasis))
 tau_rho2 = dist.Field(name='tau_rho2', bases=(xbasis))
@@ -99,7 +100,7 @@ weight *= 0.5/E0/(8*np.pi)
 weight_layout = dist.layouts[1]
 local_slice = weight_layout.slices(u.domain,scales=1)
 gshape = weight_layout.global_shape(u.domain,scales=1)
-
+lshape = weight_layout.local_shape(u.domain,scales=1)
 # Lift
 lift_basis = ybasis.derivative_basis(1)
 lift = lambda A : d3.Lift(A, lift_basis, -1)
@@ -111,14 +112,14 @@ grad_rho  = d3.grad(rho) + ey*lift(tau_rho1)
 grad_psi = d3.grad(psi) + ey*lift(tau_psi1)
 
 # Just for now
-Reinv_f = dist.VectorField(coords, name='Reinv_f', bases=(xbasis,ybasis))
-Reinv_f['g'][0] = Reinv
+Reinv_f = dist.VectorField(coords, name='Reinv_f', bases=(xbasis, ybasis))
+Reinv_f['g'][0] = 2*Reinv
 
 # Problems
-problem = d3.IVP([u, rho, p, tau_u1, tau_u2, tau_rho1, tau_rho2, tau_p, cost_t], namespace=locals())
-problem.add_equation("dt(u) - Reinv*div(grad_u) + grad(p) + lift2(tau_u2) + Ri*ey*rho = Reinv_f*2 -u@grad(u)")
-problem.add_equation("dt(rho) - Peinv*div(grad_rho) + lift2(tau_rho2) = -u@grad(rho)")
-problem.add_equation("dt(cost_t) = integ(u@u)")
+problem = d3.IVP([u, rho, p, tau_u1, tau_u2, tau_rho1, tau_rho2, tau_p], namespace=locals())
+problem.add_equation("dt(u) - Reinv*div(grad_u) + grad(p) + lift2(tau_u2) + Ri*ey*rho = -u@grad(u)")
+problem.add_equation("dt(rho) - Peinv*div(grad_rho) + lift2(tau_rho2) + u0@grad(rho) = -u@grad(rho)")
+# problem.add_equation("dt(cost_t) = integ(u@u)")
 problem.add_equation("trace(grad_u) + tau_p = 0")
 problem.add_equation("integ(p) = 0")
 problem.add_equation("u(y=-1) = 0")
@@ -138,10 +139,10 @@ solve_psi.solve()
 
 # Base-flow
 u0['g'][0] = 1-y**2
-
 # Cost functional
 alpha = 1
-J = (alpha/2*d3.integ(d3.grad(psi)@d3.grad(psi)) - (1-alpha)/(2*T)*cost_t)
+# J = (alpha/2*d3.integ(d3.grad(psi)@d3.grad(psi)) - (1-alpha)/(2*T)*cost_t)
+J = (alpha/2*d3.integ(d3.grad(psi)@d3.grad(psi)))
 Jadj = J.evaluate().copy_adjoint()
 timestep_function = lambda : timestep
 checkpoints = {u: [], rho: []}
@@ -153,11 +154,9 @@ def forward(vec):
     # Initial condition
     vec_split = np.split(np.squeeze(vec), 2)
     u.change_scales(1)
-    u[weight_layout][0] = vec_split[0].reshape(u[weight_layout].shape[1:])
-    u[weight_layout][1] = vec_split[1].reshape(u[weight_layout].shape[1:])
+    for i in range(2):
+        u[weight_layout][i] = vec_split[i].reshape(lshape)
     u.change_scales(1)
-    # Add base-flow
-    u[weight_layout] += u0[weight_layout]
     rho.change_scales(1)
     rho['g'] = -0.5*erf(y/0.125)
     cost_t['g'] = 0
@@ -179,7 +178,7 @@ def backward():
     cotangents = solve_psi.compute_sensitivities(cotangents)
     cotangents = solver.compute_sensitivities(cotangents, checkpoints=checkpoints)
     cotangents[u].change_scales(1)
-    return np.hstack([(cotangents[u][weight_layout][idx]).flatten() for idx in [0, 1]])
+    return np.hstack([(cotangents[u][weight_layout][idx]).flatten() for idx in range(2)])
 
 # Create the manifold
 weight_sp = sp.diags(np.hstack([weight.flatten(), weight.flatten()]))
@@ -200,11 +199,11 @@ def grad(vec):
     # cost(vec)
     local_grad = backward()
     local_u, local_v = np.split(local_grad, 2)
-    u_grad[weight_layout][0] = local_u.reshape(u_grad[weight_layout].shape[1:])
-    u_grad[weight_layout][1] = local_v.reshape(u_grad[weight_layout].shape[1:])
-    grad = np.hstack([v.allgather_data(layout=weight_layout).flatten() for v in [u_grad]])
+    u_grad[weight_layout][0] = local_u.reshape(lshape)
+    u_grad[weight_layout][1] = local_v.reshape(lshape)
+    grad = u_grad.allgather_data(layout=weight_layout).flatten()
     # Reshape to manifold shape
-    grad = grad.reshape((len(grad),1))
+    grad = grad.reshape((-1, 1))
     return grad
 
 # Divergence free initial condition (use p for streamfunction)
@@ -212,7 +211,7 @@ p.fill_random(layout='c')
 p.low_pass_filter(0.1)
 u.change_scales(dealias)
 u['g'][0] = dy(p)['g']
-u['g'][1] = dx(p)['g']
+u['g'][1] = -dx(p)['g']
 u.change_scales(1)
 initial_point =  u.allgather_data(layout=weight_layout).flatten()
 initial_point /= np.sqrt(initial_point.T@weight_sp@initial_point)
@@ -221,7 +220,7 @@ problem = pymanopt.Problem(manifold, cost, euclidean_gradient=grad)
 
 verbosity = 2*(comm.rank==0)
 log_verbosity = 1*(comm.rank==0)
-optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=100,  log_verbosity=log_verbosity, min_gradient_norm=1e-3)
+optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=500,  log_verbosity=log_verbosity, min_gradient_norm=1e-3)
 
 # Parallel-safe random point and tangent-vector
 random_point = manifold.random_point()
@@ -233,13 +232,11 @@ if test:
     check_gradient(problem, x=random_point, d=random_tangent_vector)
 else:
     sol = optimizer.run(problem, initial_point=initial_point)
-
     if comm.rank==0:
         iterations     = optimizer._log["iterations"]["iteration"]
         costs          = optimizer._log["iterations"]["cost"]
         gradient_norms = optimizer._log["iterations"]["gradient_norm"]
         np.savez('convergence', iterations=iterations, costs=costs, gradient_norms=gradient_norms)
-
     # Get output for optimal seed
     snapshots = solver.evaluator.add_file_handler('snapshots', sim_dt = 0.1, mode='overwrite')
     u_pert = u - u0
@@ -247,3 +244,4 @@ else:
     snapshots.add_task(u_pert, name='u_pert')
     snapshots.add_task(vorticity, name='vorticity')
     snapshots.add_task(rho)
+    cost(sol.point)
