@@ -64,7 +64,7 @@ if __name__=="__main__":
     # Coordinates and bases
     coords = d3.CartesianCoordinates('t')
     dist = d3.Distributor(coords, dtype=np.complex128)
-    tbasis = d3.ComplexFourier(coords['t'], size=N, bounds=(0, 2*np.pi), dealias=30)
+    tbasis = d3.ComplexFourier(coords['t'], size=N, bounds=(0, 2*np.pi), dealias=2)
     t = dist.local_grid(tbasis)
 
     # Fields
