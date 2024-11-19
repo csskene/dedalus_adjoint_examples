@@ -8,7 +8,7 @@ iteration.
 
 The phase sensitivity function is then found by computing the 
 adjoint Floquet mode corresponding to the neutral direct
-Floquet mode which descrives phase shifts along the limit
+Floquet mode which describes phase shifts along the limit
 cycle.
 
 This script should only take a few seconds to run (serial only)
@@ -121,7 +121,7 @@ if __name__=="__main__":
     problem = d3.LBVP([u, v, T], namespace=locals())
     problem.add_equation("2*np.pi*dt(u)/T0 - 2*np.pi*dt(u0)/T0**2*T -u +u0**2*u + v = -RHS_u")
     problem.add_equation("2*np.pi*dt(v)/T0 - 2*np.pi*dt(v0)/T0**2*T - eps*(u - b*v) = -RHS_v")
-    problem.add_equation("integ(u*du0dt) + integ(u*dv0dt) = 0") # Dont shift phase!
+    problem.add_equation("integ(u*du0dt) + integ(v*dv0dt) = 0") # Dont shift phase!
     solver = problem.build_solver()
 
     pert_norm = np.inf
