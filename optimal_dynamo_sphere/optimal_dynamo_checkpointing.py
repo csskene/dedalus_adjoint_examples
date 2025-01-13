@@ -145,7 +145,7 @@ def grad(vec_omega, vec_A):
     dal.reset_initial_condition()
     # Need to recreate the manager each time
     # schedule = SingleMemoryStorageSchedule()
-    schedule = HRevolve(total_steps, 200, 0)
+    schedule = HRevolve(total_steps, 200, 50)
     manager = tools.CheckpointingManager(schedule, dal)  # Create the checkpointing manager.
     manager.execute()
     cotangents = dal.gradient()

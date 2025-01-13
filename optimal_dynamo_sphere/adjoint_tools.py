@@ -198,12 +198,18 @@ class direct_adjoint_loop:
         if from_storage == StorageType.DISK:
             if step in self.adjoint_dependency[StorageType.DISK]:
                 file_name = self.adjoint_dependency[StorageType.DISK][step]
-                with open(file_name, "rb") as f:
-                    self.adjoint_dependency[to_storage][step] = np.load(f)
+                with np.load(file_name) as data:
+                    state_data = []
+                    for i in range(len(data.keys())):
+                        state_data.append(data[str(i)])
+                    self.adjoint_dependency[to_storage][step] = state_data
             if step in self.restart_forward[StorageType.DISK]:
                 file_name = self.restart_forward[StorageType.DISK][step]
-                with open(file_name, "rb") as f:
-                    self.forward_work_memory[to_storage][step] = np.load(f)
+                with np.load(file_name) as data:
+                    state_data = []
+                    for i in range(len(data.keys())):
+                        state_data.append(data[str(i)])
+                    self.forward_work_memory[to_storage][step] = state_data 
             if move:
                 os.remove(file_name)
         elif from_storage == StorageType.RAM:
@@ -251,22 +257,32 @@ class direct_adjoint_loop:
     def _store_on_disk(self, data, step, adj_deps):
         if adj_deps:
             tmp_adj_deps_directory = tempfile.gettempdir()
-            file_name = os.path.join(tmp_adj_deps_directory, "fwd_" + str(step) + ".npy")
+            file_name = os.path.join(tmp_adj_deps_directory, "fwd_" + str(step) \
+                                     + "_rank_" + str(rank) + ".npz")
             self.adjoint_dependency[StorageType.DISK][step] = file_name
-            np.save(file_name, data)
+            save_dict = {}
+            for idx, variable in enumerate(data):
+                save_dict[str(idx)] = variable
+            np.savez(file_name, **save_dict)
         else:
             tmp_rest_forward_directory = tempfile.gettempdir()
-            file_name = os.path.join(tmp_rest_forward_directory, "fwd_" + str(step) + ".npy")
+            file_name = os.path.join(tmp_rest_forward_directory, "fwd_" + str(step) \
+                                     + "_rank_" + str(rank) + ".npz")
             self.restart_forward[StorageType.DISK][step] = file_name
-            np.save(file_name, data)
-    
-    def _clean_disk(self):
-        if len(self.adjoint_dependency[StorageType.DISK]) > 0:
-            for step in self.adjoint_dependency[StorageType.DISK]:
-                self.adjoint_dependency[StorageType.DISK][step].close()
-        if len(self.restart_forward[StorageType.DISK]) > 0:
-            for step in self.restart_forward[StorageType.DISK]:
-                self.restart_forward[StorageType.DISK][step].close()
+            save_dict = {}
+            for idx, variable in enumerate(data):
+                save_dict[str(idx)] = variable
+            np.savez(file_name, **save_dict)
+
+    # def _clean_disk(self):
+    #     if len(self.adjoint_dependency[StorageType.DISK]) > 0:
+    #         for step in self.adjoint_dependency[StorageType.DISK]:
+    #             print(self.adjoint_dependency[StorageType.DISK][step])
+    #             # self.adjoint_dependency[StorageType.DISK][step].close()
+    #     if len(self.restart_forward[StorageType.DISK]) > 0:
+    #         for step in self.restart_forward[StorageType.DISK]:
+    #             print(self.restart_forward[StorageType.DISK][step])
+    #             # self.restart_forward[StorageType.DISK][step].close()
 
 class CheckpointingManager:
     """Manage the forward and adjoint solvers.
@@ -329,7 +345,7 @@ class CheckpointingManager:
             
         @action.register(EndReverse)
         def action_end_reverse(cp_action):
-            self.solver._clean_disk()
+            # self.solver._clean_disk()
             if self._schedule.max_n != self.reverse_step:
                 raise ValueError("The number of steps in the reverse phase"
                                  "is different from the number of steps in the"
