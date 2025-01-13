@@ -17,40 +17,26 @@ rank = comm.rank
 reducer = GlobalArrayReducer(MPI.COMM_WORLD)
 
 # TEMP for now
-# NOTE: Some of this code comes from another project.
 class global_to_local:
     """
     Helper routines to convert between global and local representations
     of vectors
     """
-    def __init__(self, weight_layout, direct_state):
+    def __init__(self, weight_layout, field):
         self.weight_layout = weight_layout
-        self.direct_state = direct_state
-        # Set up conversion from coeff data to flattened vector
-        self.local_shapes = []
-        self.array_splits = []
-        self.array_slices = []
-        iStart = 0
-        for field in self.direct_state:
-            domain = field.domain
-            self.local_shapes.append(tuple(ts.dim for ts in field.tensorsig) + self.weight_layout.local_shape(domain, scales=1))
-            local_vec_len = np.prod(self.local_shapes[-1])
-            self.array_splits.append(local_vec_len)
-            self.array_slices.append(slice(iStart, iStart + local_vec_len))
-            iStart += local_vec_len
-        self.flattened_shape = np.sum(self.array_splits)
+        self.tensor_shape = tuple(cs.dim for cs in field.tensorsig)
+        self.global_shape = self.tensor_shape + self.weight_layout.global_shape(field.domain, 1)
+        self.local_slice = tuple(slice(None) for cs in field.tensorsig) + self.weight_layout.slices(field.domain, 1)
 
     # Convert between vector and fields
-    def vector_to_fields(self, vector, fields):
-        for slice, local_shape, field in zip(self.array_slices, self.local_shapes, fields):
-            field.preset_layout(self.weight_layout)
-            field[self.weight_layout] = vector[slice].reshape(local_shape)
+    def vector_to_field(self, vector, field):
+        field.change_scales(1)
+        vec = vector.reshape(self.global_shape)
+        field[self.weight_layout] = vec[self.local_slice]
 
-    def fields_to_vector(self, vector, fields):
-        vector.fill(0)
-        for slice, field in zip(self.array_slices, fields):
-            vector[slice] = field[self.weight_layout].flatten()
-        comm.Allreduce(MPI.IN_PLACE, vector, op=MPI.SUM)
+    def field_to_vector(self, vector, field):
+        field.change_scales(1)
+        vector[:] = field.allgather_data(layout=self.weight_layout).flatten()
 
 class direct_adjoint_loop:
     """
@@ -118,7 +104,6 @@ class direct_adjoint_loop:
         write_ics : bool
             If `True`, the IC dependency data will be saved.
         """
-        print("Forward", n0, n1)
         # Reset RHS evaluators to correct iteration
         self.solver.reset(iter=n0)
         initial_time_state = self.forward_work_memory[StorageType.WORK].pop(n0)
@@ -156,7 +141,6 @@ class direct_adjoint_loop:
         clear_adj_deps : bool
             If `True`, the adjoint dependency data will be cleared.
         """
-        print("Backward")
         self.mode = "adjoint"
         if n1 == self.solver.stop_iteration:
             self._initialize_adjoint()

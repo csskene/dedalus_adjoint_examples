@@ -41,7 +41,7 @@ Nphi = 2*(lmax+1)
 Ntheta = lmax+1
 Nr = 16
 Ro = 1
-dealias = 1
+dealias = 3/2
 timestep = 1e-3
 
 Rm = float(args['--Rm'])
@@ -59,7 +59,6 @@ dist = d3.Distributor(coords, dtype=dtype, mesh=mesh)
 ball = d3.BallBasis(coords, shape=(Nphi, Ntheta, Nr), radius=Ro, dealias=dealias, dtype=dtype)
 sphere = ball.surface
 phi, theta, r = dist.local_grids(ball)
-
 # Weight matrix
 weight_theta = ball.global_colatitude_weights(dist)
 weight_r = ball.global_radial_weights(dist)
@@ -68,10 +67,6 @@ vol_test = np.sum(weight)
 vol_test = reducer.reduce_scalar(vol_test, MPI.SUM)
 vol = ball.volume
 weight_layout = dist.layouts[-1]
-
-# Global vector for interfacing with pymanopt
-N = weight.flatten().shape[0]*3
-grad_vec = np.zeros(2*N)
 
 # Fields
 er = dist.VectorField(coords, name='er')
@@ -112,44 +107,52 @@ solver = problem.build_solver(d3.RK222)
 J = -np.log(d3.integ(A@A))
 
 # Set up direct adjoint looper
-# total_steps = int(2/timestep)
-total_steps = 14
+total_steps = int(2/timestep)
 dal = tools.direct_adjoint_loop(solver, total_steps, timestep, J, pre_solvers=[solver_u])
+
+# Set up vectors
+global_to_local_omega = tools.global_to_local(weight_layout, omega)
+global_to_local_A = tools.global_to_local(weight_layout, A)
+
+N_omega = np.prod(global_to_local_omega.global_shape)
+N_A = np.prod(global_to_local_omega.global_shape)
+
+grad_omega = np.zeros(N_omega)
+grad_A = np.zeros(N_A)
 
 # Set up the manifold
 weight_sp = sp.diags(np.hstack([weight.flatten(), weight.flatten(), weight.flatten()]))
 weight_inv = sp.diags(np.hstack([1/weight.flatten(), 1/weight.flatten(), 1/weight.flatten()]))
-manifold_GS_omega = GeneralizedStiefel(N, 1, weight_sp/ball.volume, Binv=weight_inv*ball.volume, retraction="polar")
-manifold_GS_B = GeneralizedStiefel(N, 1, weight_sp, Binv=weight_inv, retraction="polar")
+manifold_GS_omega = GeneralizedStiefel(N_omega, 1, weight_sp/ball.volume, Binv=weight_inv*ball.volume, retraction="polar")
+manifold_GS_B = GeneralizedStiefel(N_A, 1, weight_sp, Binv=weight_inv, retraction="polar")
 manifold = Product([manifold_GS_omega, manifold_GS_B])
 
 # Set up checkpointing
 # Set up cost and gradient routines
-global_to_local = tools.global_to_local(weight_layout, [omega, A])
 @pymanopt.function.numpy(manifold)
 def cost(vec_omega, vec_A):
-    vec = np.vstack([vec_omega, vec_A])[:, 0]
-    global_to_local.vector_to_fields(vec, [omega, A])
+    global_to_local_omega.vector_to_field(vec_omega, omega)
+    global_to_local_A.vector_to_field(vec_A, A)
     dal.reset_initial_condition()
     dal.forward(0, total_steps)
     return dal.functional()
 
 @pymanopt.function.numpy(manifold)
 def grad(vec_omega, vec_A):
-    vec = np.vstack([vec_omega, vec_A])[:, 0]
-    global_to_local.vector_to_fields(vec, [omega, A])
+    global_to_local_omega.vector_to_field(vec_omega, omega)
+    global_to_local_A.vector_to_field(vec_A, A)
+
     dal.reset_initial_condition()
     # Need to recreate the manager each time
     # schedule = SingleMemoryStorageSchedule()
-    schedule = HRevolve(total_steps, 4, 0)
+    schedule = HRevolve(total_steps, 200, 0)
     manager = tools.CheckpointingManager(schedule, dal)  # Create the checkpointing manager.
     manager.execute()
     cotangents = dal.gradient()
-    global_to_local.fields_to_vector(grad_vec, [cotangents[omega], cotangents[A]])
-    grad_omega, grad_A = np.split(grad_vec, 2)
-    grad_omega = grad_omega.reshape((-1, 1))
-    grad_A = grad_A.reshape((-1, 1))
-    return [grad_omega, grad_A]
+    # global_to_local.fields_to_vector(grad_vec, [cotangents[omega], cotangents[A]])
+    global_to_local_omega.field_to_vector(grad_omega, cotangents[omega])
+    global_to_local_omega.field_to_vector(grad_A, cotangents[A])
+    return [vec.reshape((-1, 1)) for vec in [grad_omega, grad_A]]
 
 # Parallel-safe random point and tangent-vector
 random_point = manifold.random_point()
@@ -161,7 +164,7 @@ verbosity = 2*(comm.rank==0)
 log_verbosity = 1*(comm.rank==0)
 problem_opt = pymanopt.Problem(manifold, cost, euclidean_gradient=grad)
 optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=400, min_gradient_norm=1e-3, log_verbosity=1)
-check_gradient(problem_opt, x=random_point, d=random_tangent_vector)
+# check_gradient(problem_opt, x=random_point, d=random_tangent_vector)
 
 # A.fill_random(layout='g')
 # A.low_pass_filter(scales=0.5)
@@ -174,21 +177,21 @@ check_gradient(problem_opt, x=random_point, d=random_tangent_vector)
 # vec2 /= np.sqrt(vec2.T@weight_sp@vec2)
 # initial_point = [vec1, vec2]
 
-# # Perform the optimisation
-# sol = optimizer.run(problem_opt, initial_point=initial_point)
+# Perform the optimisation
+sol = optimizer.run(problem_opt, initial_point=random_point)
 
-# # Make data directory
-# data_dir = Path('data_Rm_{0:5.02e}'.format(Rm))
-# if rank == 0:  # only do this for the 0th MPI process
-#     if not data_dir.exists():
-#         data_dir.mkdir(parents=True)
+# Make data directory
+data_dir = Path('data_Rm_{0:5.02e}'.format(Rm))
+if rank == 0:  # only do this for the 0th MPI process
+    if not data_dir.exists():
+        data_dir.mkdir(parents=True)
 
-# snapshots = solver.evaluator.add_file_handler(Path("{0:s}/snapshots".format(data_dir)), sim_dt = 0.1)
-# snapshots.add_task(u, name='u')
-# snapshots.add_task(omega, name='omega')
-# snapshots.add_task(B, name='B')
+snapshots = solver.evaluator.add_file_handler(Path("{0:s}/snapshots".format(data_dir)), sim_dt = 0.1)
+snapshots.add_task(u, name='u')
+snapshots.add_task(omega, name='omega')
+snapshots.add_task(B, name='B')
 
-# timeseries = solver.evaluator.add_file_handler(Path("{0:s}/timeseries".format(data_dir)), sim_dt = 1e-3)
-# timeseries.add_task(d3.integ(A@A), name='A_int')
-# timeseries.add_task(d3.integ(B@B), name='B_int')
-# cost(*sol.point)
+timeseries = solver.evaluator.add_file_handler(Path("{0:s}/timeseries".format(data_dir)), sim_dt = 1e-3)
+timeseries.add_task(d3.integ(A@A), name='A_int')
+timeseries.add_task(d3.integ(B@B), name='B_int')
+cost(*sol.point)
