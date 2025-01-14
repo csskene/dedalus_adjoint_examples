@@ -74,13 +74,11 @@ er['g'][2] = 1
 omega  = dist.VectorField(coords, name='omega', bases=ball)
 u = dist.VectorField(coords, name='u', bases=ball)
 tau_u = dist.VectorField(coords, name='tau_u', bases=sphere)
+B       = dist.VectorField(coords, name='B', bases=ball)
 A       = dist.VectorField(coords, name='A', bases=ball)
 tau_A   = dist.VectorField(coords, name='tau_A', bases=sphere)
 Pi      = dist.Field(name='Pi', bases=ball)
 tau_Pi = dist.Field(name='tau_Pi')
-
-# Substitutions
-B = d3.curl(A)
 
 # Boundary conditions
 ell_func = lambda ell: ell+1
@@ -95,6 +93,13 @@ problem_u.add_equation("integ(Pi) = 0")
 problem_u.add_equation("u(r=Ro) = 0")
 solver_u = problem_u.build_solver()
 
+problem_A = d3.LBVP([A, tau_A, Pi, tau_Pi], namespace=locals())
+problem_A.add_equation("-lap(A) + grad(Pi) + lift(tau_A) = curl(B)")
+problem_A.add_equation("div(A) + tau_Pi = 0")
+problem_A.add_equation("integ(Pi) = 0")
+problem_A.add_equation("radial(grad(A)(r=Ro)) + ellmult(A)(r=Ro)/Ro = 0")
+solver_A = problem_A.build_solver()
+
 problem = d3.IVP([A, u, Pi, tau_Pi, tau_A], namespace=locals())
 problem.add_equation("dt(A) - lap(A) + grad(Pi) + lift(tau_A) = Rm*cross(u, curl(A))")
 problem.add_equation("dt(u) = 0")
@@ -104,55 +109,54 @@ problem.add_equation("radial(grad(A)(r=Ro)) + ellmult(A)(r=Ro)/Ro = 0")
 solver = problem.build_solver(d3.RK222)
 
 # Cost functional
-J = -np.log(d3.integ(A@A))
+J = -np.log(d3.integ(B@B))
 
 # Set up direct adjoint looper
 total_steps = int(2/timestep)
-dal = tools.direct_adjoint_loop(solver, total_steps, timestep, J, pre_solvers=[solver_u])
+dal = tools.direct_adjoint_loop(solver, total_steps, timestep, J, pre_solvers=[solver_u, solver_A])
 
 # Set up vectors
 global_to_local_omega = tools.global_to_local(weight_layout, omega)
-global_to_local_A = tools.global_to_local(weight_layout, A)
+global_to_local_B = tools.global_to_local(weight_layout, B)
 
 N_omega = np.prod(global_to_local_omega.global_shape)
-N_A = np.prod(global_to_local_omega.global_shape)
+N_B = np.prod(global_to_local_B.global_shape)
 
 grad_omega = np.zeros(N_omega)
-grad_A = np.zeros(N_A)
+grad_B = np.zeros(N_B)
 
 # Set up the manifold
 weight_sp = sp.diags(np.hstack([weight.flatten(), weight.flatten(), weight.flatten()]))
 weight_inv = sp.diags(np.hstack([1/weight.flatten(), 1/weight.flatten(), 1/weight.flatten()]))
 manifold_GS_omega = GeneralizedStiefel(N_omega, 1, weight_sp/ball.volume, Binv=weight_inv*ball.volume, retraction="polar")
-manifold_GS_B = GeneralizedStiefel(N_A, 1, weight_sp, Binv=weight_inv, retraction="polar")
+manifold_GS_B = GeneralizedStiefel(N_B, 1, weight_sp, Binv=weight_inv, retraction="polar")
 manifold = Product([manifold_GS_omega, manifold_GS_B])
 
 # Set up checkpointing
 # Set up cost and gradient routines
 @pymanopt.function.numpy(manifold)
-def cost(vec_omega, vec_A):
+def cost(vec_omega, vec_B):
     global_to_local_omega.vector_to_field(vec_omega, omega)
-    global_to_local_A.vector_to_field(vec_A, A)
+    global_to_local_B.vector_to_field(vec_B, B)
     dal.reset_initial_condition()
     dal.forward(0, total_steps)
     return dal.functional()
 
 @pymanopt.function.numpy(manifold)
-def grad(vec_omega, vec_A):
+def grad(vec_omega, vec_B):
     global_to_local_omega.vector_to_field(vec_omega, omega)
-    global_to_local_A.vector_to_field(vec_A, A)
+    global_to_local_B.vector_to_field(vec_B, B)
 
     dal.reset_initial_condition()
     # Need to recreate the manager each time
     # schedule = SingleMemoryStorageSchedule()
-    schedule = HRevolve(total_steps, 200, 50)
+    schedule = HRevolve(total_steps, 400, 50)
     manager = tools.CheckpointingManager(schedule, dal)  # Create the checkpointing manager.
     manager.execute()
     cotangents = dal.gradient()
-    # global_to_local.fields_to_vector(grad_vec, [cotangents[omega], cotangents[A]])
     global_to_local_omega.field_to_vector(grad_omega, cotangents[omega])
-    global_to_local_omega.field_to_vector(grad_A, cotangents[A])
-    return [vec.reshape((-1, 1)) for vec in [grad_omega, grad_A]]
+    global_to_local_omega.field_to_vector(grad_B, cotangents[B])
+    return [vec.reshape((-1, 1)) for vec in [grad_omega, grad_B]]
 
 # Parallel-safe random point and tangent-vector
 random_point = manifold.random_point()
@@ -192,6 +196,5 @@ snapshots.add_task(omega, name='omega')
 snapshots.add_task(B, name='B')
 
 timeseries = solver.evaluator.add_file_handler(Path("{0:s}/timeseries".format(data_dir)), sim_dt = 1e-3)
-timeseries.add_task(d3.integ(A@A), name='A_int')
 timeseries.add_task(d3.integ(B@B), name='B_int')
 cost(*sol.point)
