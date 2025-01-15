@@ -79,11 +79,13 @@ er['g'][2] = 1
 omega  = dist.VectorField(coords, name='omega', bases=ball)
 u = dist.VectorField(coords, name='u', bases=ball)
 tau_u = dist.VectorField(coords, name='tau_u', bases=sphere)
-B       = dist.VectorField(coords, name='B', bases=ball)
+B0       = dist.VectorField(coords, name='B0', bases=ball)
 A       = dist.VectorField(coords, name='A', bases=ball)
 tau_A   = dist.VectorField(coords, name='tau_A', bases=sphere)
 Pi      = dist.Field(name='Pi', bases=ball)
 tau_Pi = dist.Field(name='tau_Pi')
+# Substitutions
+B = d3.curl(A)
 
 # Boundary conditions
 ell_func = lambda ell: ell+1
@@ -99,14 +101,14 @@ problem_u.add_equation("u(r=Ro) = 0")
 solver_u = problem_u.build_solver()
 
 problem_A = d3.LBVP([A, tau_A, Pi, tau_Pi], namespace=locals())
-problem_A.add_equation("-lap(A) + grad(Pi) + lift(tau_A) = curl(B)")
+problem_A.add_equation("-lap(A) + grad(Pi) + lift(tau_A) = curl(B0)")
 problem_A.add_equation("div(A) + tau_Pi = 0")
 problem_A.add_equation("integ(Pi) = 0")
 problem_A.add_equation("radial(grad(A)(r=Ro)) + ellmult(A)(r=Ro)/Ro = 0")
 solver_A = problem_A.build_solver()
 
 problem = d3.IVP([A, u, Pi, tau_Pi, tau_A], namespace=locals())
-problem.add_equation("dt(A) - lap(A) + grad(Pi) + lift(tau_A) = Rm*cross(u, curl(A))")
+problem.add_equation("dt(A) - lap(A) + grad(Pi) + lift(tau_A) = Rm*cross(u, B)")
 problem.add_equation("dt(u) = 0")
 problem.add_equation("div(A) + tau_Pi = 0")
 problem.add_equation("integ(Pi) = 0")
@@ -118,23 +120,24 @@ J = -np.log(d3.integ(B@B))
 
 # Set up direct adjoint looper
 total_steps = int(2/timestep)
+total_steps = 50
 dal = tools.direct_adjoint_loop(solver, total_steps, timestep, J, adjoint_dependencies=[A], pre_solvers=[solver_u, solver_A])
 
 # Set up vectors
 global_to_local_omega = tools.global_to_local(weight_layout, omega)
-global_to_local_B = tools.global_to_local(weight_layout, B)
+global_to_local_B0 = tools.global_to_local(weight_layout, B0)
 
 N_omega = np.prod(global_to_local_omega.global_shape)
-N_B = np.prod(global_to_local_B.global_shape)
+N_B0 = np.prod(global_to_local_B0.global_shape)
 
 grad_omega = np.zeros(N_omega)
-grad_B = np.zeros(N_B)
+grad_B0 = np.zeros(N_B0)
 
 # Set up the manifold
 weight_sp = sp.diags(np.hstack([weight.flatten(), weight.flatten(), weight.flatten()]))
 weight_inv = sp.diags(np.hstack([1/weight.flatten(), 1/weight.flatten(), 1/weight.flatten()]))
 manifold_GS_omega = GeneralizedStiefel(N_omega, 1, weight_sp/ball.volume, Binv=weight_inv*ball.volume, retraction="polar")
-manifold_GS_B = GeneralizedStiefel(N_B, 1, weight_sp, Binv=weight_inv, retraction="polar")
+manifold_GS_B = GeneralizedStiefel(N_B0, 1, weight_sp, Binv=weight_inv, retraction="polar")
 manifold = Product([manifold_GS_omega, manifold_GS_B])
 
 # Set up checkpointing
@@ -148,25 +151,25 @@ else:
 
 # Set up cost and gradient routines
 @pymanopt.function.numpy(manifold)
-def cost(vec_omega, vec_B):
+def cost(vec_omega, vec_B0):
     global_to_local_omega.vector_to_field(vec_omega, omega)
-    global_to_local_B.vector_to_field(vec_B, B)
+    global_to_local_B0.vector_to_field(vec_B0, B0)
     dal.reset_initial_condition()
     dal.forward(0, total_steps)
     return dal.functional()
 
 @pymanopt.function.numpy(manifold)
-def grad(vec_omega, vec_B):
+def grad(vec_omega, vec_B0):
     global_to_local_omega.vector_to_field(vec_omega, omega)
-    global_to_local_B.vector_to_field(vec_B, B)
+    global_to_local_B0.vector_to_field(vec_B0, B0)
     dal.reset_initial_condition()
     schedule = create_schedule()
     manager = tools.CheckpointingManager(schedule, dal)  # Create the checkpointing manager.
     manager.execute()
     cotangents = dal.gradient()
     global_to_local_omega.field_to_vector(grad_omega, cotangents[omega])
-    global_to_local_omega.field_to_vector(grad_B, cotangents[B])
-    return [vec.reshape((-1, 1)) for vec in [grad_omega, grad_B]]
+    global_to_local_B0.field_to_vector(grad_B0, cotangents[B0])
+    return [vec.reshape((-1, 1)) for vec in [grad_omega, grad_B0]]
 
 def random_point():
     # Parallel-safe random point and tangent-vector
