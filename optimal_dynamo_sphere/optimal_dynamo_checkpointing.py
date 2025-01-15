@@ -4,6 +4,10 @@ Usage:
 
 Options:
     --Rm=<Rm>                   Magnetic Reynolds number [default: 65]
+    --test                      Whether to run the Taylor test
+    --checkpoint                Whether to use checkpoints
+    --N_ram=<N_ram>             Number of checkpoints in ram [default: 400]
+    --N_disk=<N_disk>           Number of checkpoints on disk [default: 50]
 """
 import logging, sys
 from pathlib import Path
@@ -17,10 +21,10 @@ from pymanopt.manifolds.product import Product
 from pymanopt.tools.diagnostics import check_gradient
 from checkpoint_schedules import SingleMemoryStorageSchedule, HRevolve
 import adjoint_tools as tools
+from scipy.stats import linregress
 from docopt import docopt
 
 args = docopt(__doc__)
-logging.getLogger().setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 comm = MPI.COMM_WORLD
 ncpu = comm.size
@@ -45,8 +49,9 @@ dealias = 3/2
 timestep = 1e-3
 
 Rm = float(args['--Rm'])
-if rank==0:
-    print('Running with Rm: %f' % Rm)
+logger.info('Running with Rm: %f' % Rm)
+test = args['--test']
+checkpoint = args['--checkpoint']
 
 # Mesh
 factors = [[ncpu//i,i] for i in range(1,int(np.sqrt(ncpu))+1) if np.mod(ncpu,i)==0]
@@ -113,7 +118,7 @@ J = -np.log(d3.integ(B@B))
 
 # Set up direct adjoint looper
 total_steps = int(2/timestep)
-dal = tools.direct_adjoint_loop(solver, total_steps, timestep, J, pre_solvers=[solver_u, solver_A])
+dal = tools.direct_adjoint_loop(solver, total_steps, timestep, J, adjoint_dependencies=[A], pre_solvers=[solver_u, solver_A])
 
 # Set up vectors
 global_to_local_omega = tools.global_to_local(weight_layout, omega)
@@ -133,6 +138,14 @@ manifold_GS_B = GeneralizedStiefel(N_B, 1, weight_sp, Binv=weight_inv, retractio
 manifold = Product([manifold_GS_omega, manifold_GS_B])
 
 # Set up checkpointing
+if checkpoint:
+    N_ram = int(args['--N_ram'])
+    N_disk = int(args['--N_disk'])
+    create_schedule = lambda : HRevolve(total_steps, N_ram, N_disk)
+    logger.info('Checkpointing with N_ram={0:d}, N_disk={1:d}'.format(N_ram, N_disk))
+else:
+    create_schedule = lambda : SingleMemoryStorageSchedule()
+
 # Set up cost and gradient routines
 @pymanopt.function.numpy(manifold)
 def cost(vec_omega, vec_B):
@@ -146,11 +159,8 @@ def cost(vec_omega, vec_B):
 def grad(vec_omega, vec_B):
     global_to_local_omega.vector_to_field(vec_omega, omega)
     global_to_local_B.vector_to_field(vec_B, B)
-
     dal.reset_initial_condition()
-    # Need to recreate the manager each time
-    # schedule = SingleMemoryStorageSchedule()
-    schedule = HRevolve(total_steps, 400, 50)
+    schedule = create_schedule()
     manager = tools.CheckpointingManager(schedule, dal)  # Create the checkpointing manager.
     manager.execute()
     cotangents = dal.gradient()
@@ -158,31 +168,40 @@ def grad(vec_omega, vec_B):
     global_to_local_omega.field_to_vector(grad_B, cotangents[B])
     return [vec.reshape((-1, 1)) for vec in [grad_omega, grad_B]]
 
-# Parallel-safe random point and tangent-vector
-random_point = manifold.random_point()
-random_point = comm.bcast(random_point, root=0)
-random_tangent_vector = manifold.random_tangent_vector(random_point)
-random_tangent_vector = comm.bcast(random_tangent_vector, root=0)
-# Check the gradient
+def random_point():
+    # Parallel-safe random point and tangent-vector
+    random_point = manifold.random_point()
+    random_point = comm.bcast(random_point, root=0)
+    return random_point
+
+###############
+# Taylor test #
+###############
+if test:
+    point_0 = random_point()
+    point_p = random_point()
+    residual = []
+    cost_0 = cost(*point_0)
+    grad_0 = grad(*point_0)
+    dJ = np.vdot(grad_0[0], point_p[0]) + np.vdot(grad_0[1], point_p[1])
+    eps = 1e-3
+    eps_list = []
+    for i in range(10):
+        eps_list.append(eps)
+        point = [point_0[j] + eps*point_p[j] for j in range(2)]
+        cost_p = cost(*point)
+        residual.append(np.abs(cost_p - cost_0 - eps*dJ))
+        eps /= 2
+    regression = linregress(np.log(eps_list), y=np.log(residual))
+    logger.info('Result of Taylor test %f' % (regression.slope))
+
+# Perform the optimisation
+point = random_point()
 verbosity = 2*(comm.rank==0)
 log_verbosity = 1*(comm.rank==0)
 problem_opt = pymanopt.Problem(manifold, cost, euclidean_gradient=grad)
 optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=400, min_gradient_norm=1e-3, log_verbosity=1)
-# check_gradient(problem_opt, x=random_point, d=random_tangent_vector)
-
-# A.fill_random(layout='g')
-# A.low_pass_filter(scales=0.5)
-# omega.fill_random(layout='g')
-# omega.low_pass_filter(scales=0.5)
-# omega['g'] = d3.curl(omega)['g']
-# vec1 = omega.allgather_data(layout=weight_layout).flatten().reshape(-1, 1)
-# vec2 = A.allgather_data(layout=weight_layout).flatten().reshape(-1, 1)
-# vec1 /= np.sqrt(vec1.T@weight_sp@vec1)
-# vec2 /= np.sqrt(vec2.T@weight_sp@vec2)
-# initial_point = [vec1, vec2]
-
-# Perform the optimisation
-sol = optimizer.run(problem_opt, initial_point=random_point)
+sol = optimizer.run(problem_opt, initial_point=point)
 
 # Make data directory
 data_dir = Path('data_Rm_{0:5.02e}'.format(Rm))
@@ -190,11 +209,11 @@ if rank == 0:  # only do this for the 0th MPI process
     if not data_dir.exists():
         data_dir.mkdir(parents=True)
 
-snapshots = solver.evaluator.add_file_handler(Path("{0:s}/snapshots".format(data_dir)), sim_dt = 0.1)
+snapshots = solver.evaluator.add_file_handler(Path(data_dir, 'snapshots'), sim_dt = 0.1)
 snapshots.add_task(u, name='u')
 snapshots.add_task(omega, name='omega')
 snapshots.add_task(B, name='B')
 
-timeseries = solver.evaluator.add_file_handler(Path("{0:s}/timeseries".format(data_dir)), sim_dt = 1e-3)
+timeseries = solver.evaluator.add_file_handler(Path(data_dir, 'timeseries'), sim_dt = 1e-3)
 timeseries.add_task(d3.integ(B@B), name='B_int')
 cost(*sol.point)

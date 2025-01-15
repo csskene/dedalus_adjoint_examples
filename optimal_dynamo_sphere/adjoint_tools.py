@@ -59,8 +59,9 @@ class direct_adjoint_loop:
                 A list of linaer Dedalus solvers to be excecuted
                 after solving the IVP
     """
-    def __init__(self, solver, max_iterations, timestep, cost_functional, pre_solvers=[], post_solvers=[]):
+    def __init__(self, solver, max_iterations, timestep, cost_functional, adjoint_dependencies=[], pre_solvers=[], post_solvers=[]):
         self.state = solver.state
+        self.adjoint_dependencies = adjoint_dependencies
         self.solver = solver
         self.solver.stop_iteration = max_iterations
         self.timestep = timestep
@@ -114,7 +115,7 @@ class direct_adjoint_loop:
         # Evolve from n0 to n1
         for step in range(n0, min(n1, self.solver.stop_iteration)):
             if write_adj_deps:
-                self._store_data([field['c'] for field in self.state], step, storage, write_adj_deps, write_ics)
+                self._store_data([field['c'] for field in self.adjoint_dependencies], step, storage, write_adj_deps, write_ics)
             self.solver.step(self.timestep)
         step += 1
         if step == self.solver.stop_iteration:
@@ -148,7 +149,7 @@ class direct_adjoint_loop:
         for i, field in enumerate(self.adjoint_state):
             field['c'] = final_time_state[i]
         for step in range(n1, n0, - 1):
-            for i, field in enumerate(self.state):
+            for i, field in enumerate(self.adjoint_dependencies):
                 field['c'] = self.adjoint_dependency[StorageType.WORK][step-1][i]
             self.solver.step_adjoint(self.timestep)
             if clear_adj_deps:
