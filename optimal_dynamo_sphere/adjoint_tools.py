@@ -354,7 +354,6 @@ class CheckpointingManager:
             self._schedule = self.create_schedule()
         self.reverse_step = 0
         for _, cp_action in enumerate(self._schedule):
-            print(mode, cp_action)
             action(cp_action)
             if isinstance(cp_action, EndForward) and mode=='forward':
                 break
