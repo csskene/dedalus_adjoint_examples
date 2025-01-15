@@ -120,7 +120,6 @@ J = -np.log(d3.integ(B@B))
 
 # Set up direct adjoint looper
 total_steps = int(2/timestep)
-total_steps = 50
 dal = tools.direct_adjoint_loop(solver, total_steps, timestep, J, adjoint_dependencies=[A], pre_solvers=[solver_u, solver_A])
 
 # Set up vectors
@@ -148,6 +147,7 @@ if checkpoint:
     logger.info('Checkpointing with N_ram={0:d}, N_disk={1:d}'.format(N_ram, N_disk))
 else:
     create_schedule = lambda : SingleMemoryStorageSchedule()
+manager = tools.CheckpointingManager(create_schedule, dal)  # Create the checkpointing manager.
 
 # Set up cost and gradient routines
 @pymanopt.function.numpy(manifold)
@@ -155,17 +155,14 @@ def cost(vec_omega, vec_B0):
     global_to_local_omega.vector_to_field(vec_omega, omega)
     global_to_local_B0.vector_to_field(vec_B0, B0)
     dal.reset_initial_condition()
-    dal.forward(0, total_steps)
+    manager.execute(mode='forward')
     return dal.functional()
 
 @pymanopt.function.numpy(manifold)
 def grad(vec_omega, vec_B0):
-    global_to_local_omega.vector_to_field(vec_omega, omega)
-    global_to_local_B0.vector_to_field(vec_B0, B0)
-    dal.reset_initial_condition()
-    schedule = create_schedule()
-    manager = tools.CheckpointingManager(schedule, dal)  # Create the checkpointing manager.
-    manager.execute()
+    # Note, cost is always run directly before grad, so no need to recompute
+    # the forward pass. Checkpoints are already in manager
+    manager.execute(mode='reverse')
     cotangents = dal.gradient()
     global_to_local_omega.field_to_vector(grad_omega, cotangents[omega])
     global_to_local_B0.field_to_vector(grad_B0, cotangents[B0])

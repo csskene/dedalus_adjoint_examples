@@ -301,14 +301,12 @@ class CheckpointingManager:
     addition, it contains methods to copy data from one storage to another, and
     to set the initial condition for the adjoint.
     """
-    def __init__(self, schedule, solver):
-        self.max_n = sys.maxsize
+    def __init__(self, create_schedule, solver):
         self.solver = solver
-        self.reverse_step = 0
-        self._schedule = schedule
+        self.create_schedule = create_schedule
         
-    def execute(self):
-        """Execute forward and adjoint using checkpointing.
+    def execute(self, mode='forward'):
+        """Execute forward/adjoint using checkpointing.
         """
         @functools.singledispatch
         def action(cp_action):
@@ -351,10 +349,15 @@ class CheckpointingManager:
                 raise ValueError("The number of steps in the reverse phase"
                                  "is different from the number of steps in the"
                                  "forward phase.")
-            
+        if mode=='forward' or mode=='both':
+            self.max_n = sys.maxsize
+            self._schedule = self.create_schedule()
         self.reverse_step = 0
         for _, cp_action in enumerate(self._schedule):
+            print(mode, cp_action)
             action(cp_action)
-            if isinstance(cp_action, EndReverse):
+            if isinstance(cp_action, EndForward) and mode=='forward':
+                break
+            elif isinstance(cp_action, EndReverse) and (mode=='reverse' or mode=='both'):
                 break
         
