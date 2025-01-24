@@ -54,7 +54,7 @@ test = args['--test']
 checkpoint = args['--checkpoint']
 
 # Mesh
-factors = [[ncpu//i,i] for i in range(1,int(np.sqrt(ncpu))+1) if np.mod(ncpu,i)==0]
+factors = [[ncpu//i,i] for i in range(1, int(np.sqrt(ncpu))+1) if np.mod(ncpu,i)==0]
 score = np.array([f[1]/f[0] for f in factors])
 mesh = factors[np.argmax(score)]
 
@@ -71,6 +71,8 @@ weight = Ro**3*weight_theta*weight_r*np.ones((Nphi, 1, 1))*(2*np.pi/Nphi)
 vol_test = np.sum(weight)
 vol_test = reducer.reduce_scalar(vol_test, MPI.SUM)
 vol = ball.volume
+
+print(vol_test, vol)
 weight_layout = dist.layouts[-1]
 
 # Fields
@@ -79,7 +81,7 @@ er['g'][2] = 1
 omega  = dist.VectorField(coords, name='omega', bases=ball)
 u = dist.VectorField(coords, name='u', bases=ball)
 tau_u = dist.VectorField(coords, name='tau_u', bases=sphere)
-B0       = dist.VectorField(coords, name='B0', bases=ball)
+B0      = dist.VectorField(coords, name='B0', bases=ball)
 A       = dist.VectorField(coords, name='A', bases=ball)
 tau_A   = dist.VectorField(coords, name='tau_A', bases=sphere)
 Pi      = dist.Field(name='Pi', bases=ball)
@@ -135,9 +137,8 @@ grad_B0 = np.zeros(N_B0)
 # Set up the manifold
 weight_sp = sp.diags(np.hstack([weight.flatten(), weight.flatten(), weight.flatten()]))
 weight_inv = sp.diags(np.hstack([1/weight.flatten(), 1/weight.flatten(), 1/weight.flatten()]))
-manifold_GS_omega = GeneralizedStiefel(N_omega, 1, weight_sp/ball.volume, Binv=weight_inv*ball.volume, retraction="polar")
-manifold_GS_B = GeneralizedStiefel(N_B0, 1, weight_sp, Binv=weight_inv, retraction="polar")
-manifold = Product([manifold_GS_omega, manifold_GS_B])
+manifold_GS = GeneralizedStiefel(N_omega, 1, weight_sp/ball.volume, Binv=weight_inv*ball.volume, retraction="polar")
+manifold = Product([manifold_GS, manifold_GS])
 
 # Set up checkpointing
 if checkpoint:
@@ -154,6 +155,10 @@ manager = tools.CheckpointingManager(create_schedule, dal)  # Create the checkpo
 def cost(vec_omega, vec_B0):
     global_to_local_omega.vector_to_field(vec_omega, omega)
     global_to_local_B0.vector_to_field(vec_B0, B0)
+    init_norm = reducer.global_max(d3.integ(omega@omega)['g'])/ball.volume
+    logger.debug('|omega| = %f' % (init_norm))
+    init_norm = reducer.global_max(d3.integ(B0@B0)['g'])/ball.volume 
+    logger.debug('|B0| = %f' % (init_norm))
     dal.reset_initial_condition()
     manager.execute(mode='forward')
     return dal.functional()
@@ -170,9 +175,18 @@ def grad(vec_omega, vec_B0):
 
 def random_point():
     # Parallel-safe random point and tangent-vector
-    random_point = manifold.random_point()
-    random_point = comm.bcast(random_point, root=0)
-    return random_point
+    random_point = []
+    for p in range(2):
+        B0.change_scales(1)
+        B0.fill_random();B0['c']
+        B0.change_scales(1)
+        B0['g']
+        norm = reducer.global_max(d3.integ(B0@B0)['g'])/ball.volume
+        B0.change_scales(1)
+        B0['g'] /= np.sqrt(norm)
+        data = B0.allgather_data(layout=weight_layout).flatten().reshape((-1, 1))
+        random_point.append(data)
+    return np.array(random_point)
 
 ###############
 # Taylor test #
