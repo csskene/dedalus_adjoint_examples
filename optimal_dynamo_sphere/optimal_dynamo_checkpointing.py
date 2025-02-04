@@ -118,7 +118,7 @@ problem.add_equation("radial(grad(A)(r=Ro)) + ellmult(A)(r=Ro)/Ro = 0")
 solver = problem.build_solver(d3.RK222)
 
 # Cost functional
-J = -np.log(d3.integ(B@B))
+J = -np.log(d3.integ(A@A))
 
 # Set up direct adjoint looper
 total_steps = int(2/timestep)
@@ -181,6 +181,8 @@ def random_point():
         B0.fill_random();B0['c']
         B0.change_scales(1)
         B0['g']
+        B0.change_scales(3/2)
+        B0['g'] = d3.curl(B0)['g']
         norm = reducer.global_max(d3.integ(B0@B0)['g'])/ball.volume
         B0.change_scales(1)
         B0['g'] /= np.sqrt(norm)
