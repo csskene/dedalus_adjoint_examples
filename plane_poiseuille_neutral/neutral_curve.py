@@ -12,6 +12,8 @@ Reynolds number R=log_10(Re)/5 .
 and step in this direction to find a new starting point.
 4. Repeat steps 1-3 to compute the neutral curve over a specified region.
 
+The script should take less than 30 CPU seconds
+
 Useage:
     python3 neutral_curve.py
 """
@@ -46,7 +48,7 @@ def set_state_adjoint(self, index, subsystem):
     subsystem.scatter(self.left_eigenvectors[:, index], self.state)
 
 # Parameters
-Ny = 128
+Ny = 256
 dtype = np.complex128
 beta = 0
 
@@ -124,9 +126,8 @@ dLpdalpha = d3.Convert(problem.eqs[3]['L'].sym_diff(alpha), ybasis_k1)
 def eig_grad(point, solver, target):
     R['g'] = point[0]
     alpha['g'] = point[1]
-    # Get point
+    # Solve the eigenvalue problem
     solver.solve_sparse(solver.subproblems[0], N=1, target=target, left=True, rebuild_matrices=True)
-    # print(target, solver.eigenvalues[0])
     index = np.argmax(solver.eigenvalues.real)
     # Set the adjoint_state
     set_state_adjoint(solver, index, solver.subsystems[0])
@@ -137,11 +138,9 @@ def eig_grad(point, solver, target):
     grad_Re = 0
     for adjoint_field, field in zip([u_adj, v_adj, w_adj], [dLudRe, dLvdRe, dLwdRe]):
         grad_Re -= np.vdot(adjoint_field['c'], field['c'])
-
     grad_alpha = 0
     for adjoint_field, field in zip([u_adj, v_adj, w_adj, p_adj], [dLudalpha, dLvdalpha, dLwdalpha, dLpdalpha]):
         grad_alpha -= np.vdot(adjoint_field['c'], field['c'])
-
     cost = solver.eigenvalues[index]
     return cost, [grad_Re, grad_alpha]
 
@@ -152,47 +151,49 @@ def cost_grad_restricted(beta, point0, normal, solver, target):
     eig, grad = eig_grad(point, solver, target)
     cost = eig.real
     cost_grad = np.array(grad).real
-    beta_grad = np.dot(cost_grad, normal)
+    beta_grad = np.dot(cost_grad, np.array(normal))
     return cost, beta_grad
 
-neutral_p = []
-neutral_m = []
 # Main loop
-# TODO: Could parallelise over dir
-for neutral, dir in zip([neutral_m, neutral_p], [-1, +1]):
-    # Normals and tangents
-    point0 = [np.log10(6500)/5, 0.8]
-    # Refine initial guess
-    R['g'] = point0[0]
-    alpha['g'] = point0[1]
-    target = 0.001715391802888724-0.2529293654585668j
-    solver.solve_sparse(solver.subproblems[0], N=10, target=target, rebuild_matrices=True)
-    index = np.argmax(solver.eigenvalues.real)
-    target = solver.eigenvalues[index]
-    while point0[0]<8/5:
-        # Find neutral curve
-        eig, normal = eig_grad(point0, solver, target)
-        normal = np.array(normal).real
-        normal /= np.linalg.norm(normal)
-        sol = scipy.optimize.root_scalar(lambda A: cost_grad_restricted(A, point0, normal, solver, target), fprime=True, x0=0, method='newton')
-        beta_ = sol.root
-        point = point0 + normal*beta_
-        neutral.append(point)
-        # Compute tangent
-        eig, normal = eig_grad(point, solver, target)    
-        complex_normal = np.array(normal)
-        normal = np.array(normal).real
-        normal /= np.linalg.norm(normal)
-        tangent = dir*np.array([-normal[1], normal[0]])
-        
-        dp = 0.05*tangent
-        point0 = point + dp
-
-        target = eig + np.dot(complex_normal, dp)
+points_0 = [[np.log10(6500)/5, 1], [1.56220763, 0.34540611]]
+steps = [0.05, 0.01]
+file_names = ['neutral', 'neutral_zoom']
+lower_bounds = [0, 7/5]
+for orig_point0, step_size, file_name, lower_bound in zip(points_0, steps, file_names, lower_bounds):
+    neutral_p = []
+    neutral_m = []
+    # TODO: Could parallelise over dir
+    for neutral, dir in zip([neutral_m, neutral_p], [-1, +1]):
+        point0 = [0, 0]
+        point0[0] = orig_point0[0]
+        point0[1] = orig_point0[1]
+        # Normals and tangents
+        # Refine initial guess
         R['g'] = point0[0]
         alpha['g'] = point0[1]
-
-neutral = neutral_m[::-1]
-neutral.extend(neutral_p[1:])
-neutral = np.array(neutral)
-np.save('neutral', neutral)
+        target = -0.01j
+        solver.solve_sparse(solver.subproblems[0], N=10, target=target, rebuild_matrices=True)
+        indices = np.argsort(solver.eigenvalues.real)
+        index = indices[-1]
+        target = solver.eigenvalues[index]
+        while point0[0]<9/5 and point0[0]>lower_bound:
+            eig, normal = eig_grad(point0, solver, target)
+            normal = np.array(normal).real
+            normal /= np.linalg.norm(normal)
+            sol = scipy.optimize.root_scalar(lambda A: cost_grad_restricted(A, point0, normal, solver, target), x0=0, fprime=True)
+            beta_ = sol.root
+            point = point0 + normal*beta_
+            neutral.append(point)
+            # Compute tangent
+            eig, normal = eig_grad(point, solver, target)
+            complex_normal = np.array(normal)
+            normal = np.array(normal).real
+            normal /= np.linalg.norm(normal)
+            tangent = dir*np.array([-normal[1], normal[0]])
+            dp = step_size*tangent
+            point0 = point + dp
+            target = eig + np.dot(complex_normal, dp)
+            R['g'] = point0[0]
+            alpha['g'] = point0[1]
+    neutral = np.array(neutral_m[::-1] + neutral_p[1:])
+    np.save(file_name, neutral)
