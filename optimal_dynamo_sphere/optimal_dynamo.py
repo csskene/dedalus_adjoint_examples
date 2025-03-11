@@ -95,17 +95,13 @@ weight_layout = dist.layouts[-1]
 er = dist.VectorField(coords, name='er')
 er['g'][2] = 1
 omega = dist.VectorField(coords, name='omega', bases=ball)
-omega_clean = dist.VectorField(coords, name='omega_clean', bases=ball)
 u = dist.VectorField(coords, name='u', bases=ball)
 tau_u = dist.VectorField(coords, name='tau_u', bases=sphere)
 B0 = dist.VectorField(coords, name='B0', bases=ball)
-B0_clean = dist.VectorField(coords, name='B0_clean', bases=ball)
 A = dist.VectorField(coords, name='A', bases=ball)
 tau_A = dist.VectorField(coords, name='tau_A', bases=sphere)
 Pi = dist.Field(name='Pi', bases=ball)
-tau_Pi = dist.Field(name='tau_Pi_', bases=sphere)
-gauge_Pi = dist.Field(name='gauge_Pi')
-C = dist.Field(name='C')
+tau_Pi = dist.Field(name='tau_Pi')
 
 # Substitutions
 if case=='A' or case=='B0':
@@ -119,39 +115,25 @@ ellmult = lambda A: d3.SphericalEllProduct(A, coords, ell_func) # mult by (ell+1
 lift = lambda A : d3.Lift(A, ball, -1)
 
 # Problems
-problem_clean_u = d3.LBVP([omega_clean, Pi, tau_Pi, C], namespace=locals())
-problem_clean_u.add_equation("omega_clean + grad(Pi) = omega")
-problem_clean_u.add_equation("lap(Pi) + lift(tau_Pi_) + C = div(omega)")
-problem_clean_u.add_equation("integ(Pi) = 0")
-problem_clean_u.add_equation("radial(omega_clean(r=Ro)) = 0")
-solver_clean_u = problem_clean_u.build_solver()
-
-problem_u = d3.LBVP([u, tau_u, Pi, gauge_Pi], namespace=locals())
-problem_u.add_equation("-lap(u) + grad(Pi) + lift(tau_u) = curl(omega_clean)")
-problem_u.add_equation("div(u) + gauge_Pi = 0")
+problem_u = d3.LBVP([u, tau_u, Pi, tau_Pi], namespace=locals())
+problem_u.add_equation("curl(curl(u)) + grad(Pi) + lift(tau_u) = curl(omega)")
+problem_u.add_equation("div(u) + tau_Pi = 0")
 problem_u.add_equation("integ(Pi) = 0")
 problem_u.add_equation("u(r=Ro) = 0")
 solver_u = problem_u.build_solver()
 
-problem_clean_B = d3.LBVP([B0_clean, Pi, tau_Pi, C], namespace=locals())
-problem_clean_B.add_equation("B0_clean + grad(Pi) = B0")
-problem_clean_B.add_equation("lap(Pi) + lift(tau_Pi_) + C = div(B0)")
-problem_clean_B.add_equation("integ(Pi) = 0")
-problem_clean_B.add_equation("radial(radial(grad(B0_clean)(r=Ro)) + ellmult(B0_clean)(r=Ro)/Ro) = 0")
-solver_clean_B = problem_clean_B.build_solver()
-
-problem_A = d3.LBVP([A, tau_A, Pi, gauge_Pi], namespace=locals())
-problem_A.add_equation("-lap(A) + grad(Pi) + lift(tau_A) = curl(B0_clean)")
-problem_A.add_equation("div(A) + gauge_Pi = 0")
+problem_A = d3.LBVP([A, tau_A, Pi, tau_Pi], namespace=locals())
+problem_A.add_equation("curl(curl(A)) + grad(Pi) + lift(tau_A) = curl(B0)")
+problem_A.add_equation("div(A) + tau_Pi = 0")
 problem_A.add_equation("integ(Pi) = 0")
 problem_A.add_equation("radial(grad(A)(r=Ro)) + ellmult(A)(r=Ro)/Ro = 0")
 solver_A = problem_A.build_solver()
 
 if case=='A' or case=='B0':
-    problem = d3.IVP([A, u, Pi, gauge_Pi, tau_A], namespace=locals())
+    problem = d3.IVP([A, u, Pi, tau_Pi, tau_A], namespace=locals())
     problem.add_equation("dt(A) - lap(A) + grad(Pi) + lift(tau_A) = Rm*cross(u, B)")
     problem.add_equation("dt(u) = 0")
-    problem.add_equation("div(A) + gauge_Pi = 0")
+    problem.add_equation("div(A) + tau_Pi = 0")
     problem.add_equation("integ(Pi) = 0")
     problem.add_equation("radial(grad(A)(r=Ro)) + ellmult(A)(r=Ro)/Ro = 0")
 elif case=='B':
@@ -173,9 +155,9 @@ elif case=='B0' or case=='B':
 # Set up direct adjoint looper
 total_steps = int(T/timestep)
 
-pre_solvers = [solver_clean_u, solver_u]
+pre_solvers = [solver_u]
 if case=="B0":
-    pre_solvers += [solver_clean_B, solver_A]
+    pre_solvers += [solver_A]
 dal = tools.direct_adjoint_loop(solver, total_steps, timestep, J, adjoint_dependencies=[A], pre_solvers=pre_solvers)
 
 # Set up vectors
@@ -213,17 +195,13 @@ def cost(vec_omega, vec_mag):
     ## For debugging ###########################################
     init_norm = reducer.global_max(d3.integ(omega@omega)['g'])/ball.volume
     logger.debug('|omega|-1 = %g' % (init_norm-1))
-    solver_clean_u.solve()
     solver_u.solve()
-    init_norm = reducer.global_max(d3.integ(omega_clean@omega_clean)['g'])/ball.volume
-    logger.debug('|omega_clean|-1 = %g' % (init_norm-1))
-    missfit = d3.curl(u)-omega_clean
+    missfit = d3.curl(u)-omega
     norm = reducer.global_max(d3.integ(missfit@missfit)['g'])/reducer.global_max(d3.integ(u@u)['g'])
-    logger.debug('curl(u) - omega = %g' % (norm))
+    logger.debug('|curl(u) - omega| = %g' % (norm))
     norm = reducer.global_max(np.abs(tau_u['g']))
-    logger.debug('max tau_u = %g' % (norm))
+    logger.debug('max(tau_u) = %g' % (norm))
     if case=='B0':
-        solver_clean_B.solve()
         solver_A.solve()
         init_norm = reducer.global_max(d3.integ(B@B)['g'])/ball.volume
         logger.debug('|B|-1 = %g' % (init_norm-1))
@@ -231,7 +209,7 @@ def cost(vec_omega, vec_mag):
         norm = reducer.global_max(d3.integ(missfit@missfit)['g'])/reducer.global_max(d3.integ(B0@B0)['g'])
         logger.debug('|curl(A) - B0| = %g' % (norm))
         norm = reducer.global_max(np.abs(tau_A['g']))
-        logger.debug('max tau_A = %g' % (norm))
+        logger.debug('max(tau_A) = %g' % (norm))
     #############################################################
     dal.reset_initial_condition()
     manager.execute(mode='forward')
@@ -257,8 +235,8 @@ def random_point():
     # Use LBVPs to create initial guesses which are divergence
     # free and satisfy the correct boundary conditions
     random_point = []
-    omega_clean.fill_random('g')
-    omega_clean.low_pass_filter(scales=0.25);omega_clean['c'];omega_clean['g']
+    omega.fill_random('g')
+    omega.low_pass_filter(scales=0.25);omega['c'];omega['g']
     solver_u.solve()
     omega.change_scales(ball.dealias)
     omega['g'] = d3.curl(u)['g']
@@ -267,10 +245,11 @@ def random_point():
     omega.change_scales(1)
     data = omega.allgather_data(layout=weight_layout).flatten().reshape((-1, 1))
     random_point.append(data)
-    B0_clean.fill_random('g')
-    B0_clean.low_pass_filter(scales=0.25);B0_clean['c'];B0_clean['g']
+    B0.fill_random('g')
+    B0.low_pass_filter(scales=0.25);B0['c'];B0['g']
     solver_A.solve()
     if case=='A':
+        B0.change_scales(1)
         B0['g'] = A['g']
     elif case=='B0' or case=='B':
         B0.change_scales(ball.dealias)
