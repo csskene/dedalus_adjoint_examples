@@ -324,6 +324,6 @@ snapshots.add_task(B, name='B')
 snapshots.add_task(A, name='A')
 
 timeseries = solver.evaluator.add_file_handler(Path(data_dir, 'timeseries'), sim_dt = 1e-3)
-timeseries.add_task(d3.integ(B@B), name='B_int')
-timeseries.add_task(d3.integ(A@A), name='A_int')
+timeseries.add_task(d3.integ(B@B)/ball.volume, name='B_int')
+timeseries.add_task(d3.integ(A@A)/ball.volume, name='A_int')
 cost(*sol.point)
