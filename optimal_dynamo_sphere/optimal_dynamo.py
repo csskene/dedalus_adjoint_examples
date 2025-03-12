@@ -182,9 +182,13 @@ else:
     create_schedule = lambda : SingleMemoryStorageSchedule()
 manager = tools.CheckpointingManager(create_schedule, dal)  # Create the checkpointing manager.
 
+num_fun_evals = 0
+num_grad_evals = 0
 # Set up cost and gradient routines
 @pymanopt.function.numpy(manifold)
 def cost(vec_omega, vec_mag):
+    global num_fun_evals
+    num_fun_evals += 1
     global_to_local_vec.vector_to_field(vec_omega, omega)
     if case=='A':
         global_to_local_vec.vector_to_field(vec_mag, A)
@@ -217,6 +221,8 @@ def cost(vec_omega, vec_mag):
 
 @pymanopt.function.numpy(manifold)
 def grad(vec_omega, vec_mag):
+    global num_grad_evals
+    num_grad_evals += 1
     # Note, cost is always run directly before grad, so no need to recompute
     # the forward pass. Checkpoints are already in manager
     manager.execute(mode='reverse')
@@ -287,9 +293,11 @@ point = random_point()
 verbosity = 2*(comm.rank==0)
 log_verbosity = 1*(comm.rank==0)
 problem_opt = pymanopt.Problem(manifold, cost, euclidean_gradient=grad)
-optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=400, min_gradient_norm=1e-2, log_verbosity=1)
+optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=2, min_gradient_norm=1e-2, log_verbosity=1)
 sol = optimizer.run(problem_opt, initial_point=point)
 
+logger.info('Number of function evaluations {0:d}'.format(num_fun_evals))
+logger.info('Number of gradient evaluations {0:d}'.format(num_grad_evals))
 # Make data directory
 data_dir = Path('case_{0:s}_data_Rm_{1:5.03e}'.format(case, Rm))
 if rank == 0:  # only do this for the 0th MPI process
