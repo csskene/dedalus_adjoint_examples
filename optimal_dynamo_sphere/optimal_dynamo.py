@@ -300,7 +300,7 @@ if comm.rank==0:
     iterations     = optimizer._log["iterations"]["iteration"]
     costs          = optimizer._log["iterations"]["cost"]
     gradient_norms = optimizer._log["iterations"]["gradient_norm"]
-    np.savez('convergence', iterations=iterations, cost_func=costs, residual=gradient_norms)
+    np.savez(Path(data_dir, 'convergence'), iterations=iterations, cost_func=costs, residual=gradient_norms)
 
 snapshots = solver.evaluator.add_file_handler(Path(data_dir, 'snapshots'), sim_dt = 0.1)
 snapshots.add_task(u, name='u')
