@@ -293,7 +293,7 @@ point = random_point()
 verbosity = 2*(comm.rank==0)
 log_verbosity = 1*(comm.rank==0)
 problem_opt = pymanopt.Problem(manifold, cost, euclidean_gradient=grad)
-optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=2, min_gradient_norm=1e-2, log_verbosity=1)
+optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=400, min_gradient_norm=1e-2, log_verbosity=1)
 sol = optimizer.run(problem_opt, initial_point=point)
 
 logger.info('Number of function evaluations {0:d}'.format(num_fun_evals))
