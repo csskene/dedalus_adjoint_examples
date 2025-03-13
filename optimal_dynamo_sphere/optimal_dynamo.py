@@ -287,36 +287,36 @@ if test:
         eps /= 2
     regression = linregress(np.log(eps_list), y=np.log(residual))
     logger.info('Result of Taylor test %f' % (regression.slope))
+else:
+    # Perform the optimisation
+    point = random_point()
+    verbosity = 2*(comm.rank==0)
+    log_verbosity = 1*(comm.rank==0)
+    problem_opt = pymanopt.Problem(manifold, cost, euclidean_gradient=grad)
+    optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=400, min_gradient_norm=1e-2, log_verbosity=1)
+    sol = optimizer.run(problem_opt, initial_point=point)
 
-# Perform the optimisation
-point = random_point()
-verbosity = 2*(comm.rank==0)
-log_verbosity = 1*(comm.rank==0)
-problem_opt = pymanopt.Problem(manifold, cost, euclidean_gradient=grad)
-optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=400, min_gradient_norm=1e-2, log_verbosity=1)
-sol = optimizer.run(problem_opt, initial_point=point)
+    logger.info('Number of function evaluations {0:d}'.format(num_fun_evals))
+    logger.info('Number of gradient evaluations {0:d}'.format(num_grad_evals))
+    # Make data directory
+    data_dir = Path('case_{0:s}_data_Rm_{1:5.03e}'.format(case, Rm))
+    if rank == 0:  # only do this for the 0th MPI process
+        if not data_dir.exists():
+            data_dir.mkdir(parents=True)
 
-logger.info('Number of function evaluations {0:d}'.format(num_fun_evals))
-logger.info('Number of gradient evaluations {0:d}'.format(num_grad_evals))
-# Make data directory
-data_dir = Path('case_{0:s}_data_Rm_{1:5.03e}'.format(case, Rm))
-if rank == 0:  # only do this for the 0th MPI process
-    if not data_dir.exists():
-        data_dir.mkdir(parents=True)
+    if comm.rank==0:
+        iterations     = optimizer._log["iterations"]["iteration"]
+        costs          = optimizer._log["iterations"]["cost"]
+        gradient_norms = optimizer._log["iterations"]["gradient_norm"]
+        np.savez(Path(data_dir, 'convergence'), iterations=iterations, cost_func=costs, residual=gradient_norms)
 
-if comm.rank==0:
-    iterations     = optimizer._log["iterations"]["iteration"]
-    costs          = optimizer._log["iterations"]["cost"]
-    gradient_norms = optimizer._log["iterations"]["gradient_norm"]
-    np.savez(Path(data_dir, 'convergence'), iterations=iterations, cost_func=costs, residual=gradient_norms)
+    snapshots = solver.evaluator.add_file_handler(Path(data_dir, 'snapshots'), sim_dt = 0.1)
+    snapshots.add_task(u, name='u')
+    snapshots.add_task(omega, name='omega')
+    snapshots.add_task(B, name='B')
+    snapshots.add_task(A, name='A')
 
-snapshots = solver.evaluator.add_file_handler(Path(data_dir, 'snapshots'), sim_dt = 0.1)
-snapshots.add_task(u, name='u')
-snapshots.add_task(omega, name='omega')
-snapshots.add_task(B, name='B')
-snapshots.add_task(A, name='A')
-
-timeseries = solver.evaluator.add_file_handler(Path(data_dir, 'timeseries'), sim_dt = 1e-3)
-timeseries.add_task(d3.integ(B@B)/ball.volume, name='B_int')
-timeseries.add_task(d3.integ(A@A)/ball.volume, name='A_int')
-cost(*sol.point)
+    timeseries = solver.evaluator.add_file_handler(Path(data_dir, 'timeseries'), sim_dt = 1e-3)
+    timeseries.add_task(d3.integ(B@B)/ball.volume, name='B_int')
+    timeseries.add_task(d3.integ(A@A)/ball.volume, name='A_int')
+    cost(*sol.point)
