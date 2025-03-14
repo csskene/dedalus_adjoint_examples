@@ -21,6 +21,7 @@ import dedalus.public as d3
 import logging
 import numpy as np
 import scipy
+from scipy.stats import linregress
 logger = logging.getLogger(__name__)
 
 def set_state_adjoint(self, index, subsystem):
@@ -146,13 +147,33 @@ def eig_grad(point, solver, target):
 
 # Routine to give the function and its gradient with respect to beta for the line
 # search
-def cost_grad_restricted(beta, point0, normal, solver, target):
-    point = point0 + normal*beta
+def cost_grad_restricted(gamma, point0, normal, solver, target):
+    point = point0 + normal*gamma
     eig, grad = eig_grad(point, solver, target)
     cost = eig.real
     cost_grad = np.array(grad).real
     beta_grad = np.dot(cost_grad, np.array(normal))
     return cost, beta_grad
+
+# Test
+point0 = np.array([np.log10(6500)/5, 1])
+pointp = np.array([1, 0.01])
+target = -0.25j
+eig0, grad = eig_grad(point0, solver, target)
+dir_grad = np.dot(grad, pointp)
+residual = []
+eps_list = []
+eps = 1e-4
+for kk in range(10):
+    eps_list.append(eps)
+    eig, grad = eig_grad(point0+eps*pointp, solver, target)
+    residual.append(eig-eig0-eps*dir_grad)
+    eps /= 2
+residual = np.array(residual)
+regression = linregress(np.log(eps_list), y=np.log(np.abs(residual.real)))
+logger.info('Result of Taylor test (growth) %f' % (regression.slope))
+regression = linregress(np.log(eps_list), y=np.log(np.abs(residual.imag)))
+logger.info('Result of Taylor test (freq) %f' % (regression.slope))
 
 # Main loop
 points_0 = [[np.log10(6500)/5, 1], [1.56220763, 0.34540611]]
@@ -181,8 +202,8 @@ for orig_point0, step_size, file_name, lower_bound in zip(points_0, steps, file_
             normal = np.array(normal).real
             normal /= np.linalg.norm(normal)
             sol = scipy.optimize.root_scalar(lambda A: cost_grad_restricted(A, point0, normal, solver, target), x0=0, fprime=True)
-            beta_ = sol.root
-            point = point0 + normal*beta_
+            gamma = sol.root
+            point = point0 + normal*gamma
             neutral.append(point)
             # Compute tangent
             eig, normal = eig_grad(point, solver, target)
