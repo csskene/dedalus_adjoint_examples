@@ -277,7 +277,7 @@ if test:
     cost_0 = cost(*point_0)
     grad_0 = grad(*point_0)
     dJ = np.vdot(grad_0[0], point_p[0]) + np.vdot(grad_0[1], point_p[1])
-    eps = 1e-3
+    eps = 1e-4
     eps_list = []
     for i in range(10):
         eps_list.append(eps)
