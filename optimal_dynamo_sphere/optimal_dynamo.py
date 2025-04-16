@@ -287,6 +287,7 @@ if test:
         eps /= 2
     regression = linregress(np.log(eps_list), y=np.log(residual))
     logger.info('Result of Taylor test %f' % (regression.slope))
+    np.savez('dynamo_test', eps=np.array(eps_list), residual=np.array(residual))
 else:
     # Perform the optimisation
     point = random_point()
