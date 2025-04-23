@@ -6,12 +6,17 @@ Usage:
 """
 import pyvista as pv
 
-mesh = pv.read('U_VTK.vts')
-mesh.set_active_scalars('U')
-streamlines = mesh.streamlines()
+task = 'u'
+mesh = pv.read('snapshot_VTK.vts')
+mesh.set_active_scalars(task)
 
 p = pv.Plotter()
-streamlines = mesh.streamlines(source_radius=0.1, n_points=100, terminal_speed=0.05, initial_step_length=0.01)
-p.add_mesh(streamlines.tube(radius=0.01), scalars='U', lighting=False)
+p.show_axes()
+
+p.add_mesh(pv.Sphere(theta_resolution=64, phi_resolution=64, radius=1), color='gray', opacity=0.05)
+
+streamlines = mesh.streamlines(source_radius=0.1, n_points=75, terminal_speed=1e-3, max_step_length=0.01, max_length=1.5, integration_direction='both')
+p.add_mesh(streamlines.tube(radius=0.01), scalars=task, lighting=True)
+
 p.show(auto_close=False)
-p.screenshot('streamlines.png') 
+p.screenshot('streamlines.png')
