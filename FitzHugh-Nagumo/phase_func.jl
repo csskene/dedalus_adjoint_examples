@@ -3,14 +3,18 @@
 using NPZ
 using DifferentialEquations
 using LinearAlgebra
+using HDF5
 
 println("Number of threads: ", Threads.nthreads())
 
 # Read in limit cycle
-data = npzread("phase_npy.npz")
-u0 = data["u"]
-v0 = data["v"]
-t = data["t"]
+file = h5open("FitzHugh-Nagumo/FitzHugh-Nagumo_s1.h5", "r")
+u0 = read(file["tasks/u0"])[:, 1]
+v0 = read(file["tasks/v0"])[:, 1]
+t = range(0, 2pi, length=length(u0)+1)
+t = t[1:end-1]
+close(file)
+
 LC = hcat(u0, v0)
 T = 36.518032
 
