@@ -21,7 +21,6 @@ if __name__=="__main__":
         v0 = file['tasks/v0'][0].real
         t = np.squeeze(file['tasks/u'].dims[1][0][:]).real
 
-        # np.savez('phase_npy', u=u0, v=v0, t=t)  # Save LC for calculating trajectory phases
         def plot_coloured_line(data, phases, ax):
             cmap = plt.get_cmap('twilight')
             norm = plt.Normalize(t.min(), t.max())

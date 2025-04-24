@@ -143,6 +143,8 @@ if __name__=="__main__":
     v0['c'] *= np.exp(1j*phi*tbasis.wavenumbers)
 
     # Save LC for calculating phase function
+    u0.change_scales(1)
+    v0.change_scales(1)
     np.savez('phase_npy', u=u0['g'], v=v0['g'], t=t) 
 
     # Solve the Floquet problem
