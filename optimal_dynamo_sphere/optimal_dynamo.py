@@ -158,7 +158,14 @@ total_steps = int(T/timestep)
 pre_solvers = [solver_u]
 if case=="B0":
     pre_solvers += [solver_A]
-dal = tools.direct_adjoint_loop(solver, total_steps, timestep, J, adjoint_dependencies=[A], pre_solvers=pre_solvers)
+
+# Dependencies
+if case=='A' or case=='B0':
+    adjoint_dependencies=[A]
+elif case=='B':
+    adjoint_dependencies=[B]
+
+dal = tools.direct_adjoint_loop(solver, total_steps, timestep, J, adjoint_dependencies=adjoint_dependencies, pre_solvers=pre_solvers)
 
 # Set up vectors
 global_to_local_vec = tools.global_to_local(weight_layout, omega)
