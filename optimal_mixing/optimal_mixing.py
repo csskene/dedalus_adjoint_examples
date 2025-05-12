@@ -46,7 +46,7 @@ Peinv = 1./500
 Ri = 0.05
 dealias = 3/2
 T = 5
-alpha = 1
+alpha = 0
 timestep = 1e-3
 timestepper = d3.SBDF2
 total_steps = int(T/timestep)
@@ -70,7 +70,7 @@ tau_u1 = dist.VectorField(coords, name='tau_u1', bases=(xbasis))
 tau_u2 = dist.VectorField(coords, name='tau_u2', bases=(xbasis))
 p  = dist.Field(name='p', bases=(xbasis, ybasis))
 tau_p  = dist.Field(name='tau_p')
-u0 = dist.VectorField(coords, name='u0', bases=(xbasis, ybasis))
+u0 = dist.VectorField(coords, name='u0', bases=(ybasis))
 rho  = dist.Field(name='rho', bases=(xbasis, ybasis))
 tau_rho1 = dist.Field(name='tau_rho1', bases=(xbasis))
 tau_rho2 = dist.Field(name='tau_rho2', bases=(xbasis))
@@ -111,14 +111,13 @@ grad_u = d3.grad(u) + ey*lift(tau_u1)
 grad_rho = d3.grad(rho) + ey*lift(tau_rho1)
 grad_psi = d3.grad(psi) + ey*lift(tau_psi1)
 
-# TODO: Should be possible for Reinv to have no bases
-Reinv_f = dist.VectorField(coords, name='Reinv_f', bases=(xbasis, ybasis))
-Reinv_f['g'][0] = 2*Reinv
+# Base-flow
+u0['g'][0] = 1-y**2
 
 # Problems
 problem = d3.IVP([u, rho, p, cost_t, tau_u1, tau_u2, tau_rho1, tau_rho2, tau_p], namespace=locals())
-problem.add_equation("dt(u) - Reinv*div(grad_u) + grad(p) + lift2(tau_u2) + Ri*ey*rho = Reinv_f -u@grad(u)")
-problem.add_equation("dt(rho) - Peinv*div(grad_rho) + lift2(tau_rho2) = -div(u*rho)")
+problem.add_equation("dt(u) - Reinv*div(grad_u) + grad(p) + lift2(tau_u2) + Ri*ey*rho + u0@grad(u) + u@grad(u0) = -u@grad(u)")
+problem.add_equation("dt(rho) - Peinv*div(grad_rho) + lift2(tau_rho2) + u0@grad(rho) = -div(u*rho)")
 problem.add_equation("dt(cost_t) = integ(u@u)")
 problem.add_equation("trace(grad_u) + tau_p = 0")
 problem.add_equation("integ(p) = 0")
@@ -133,17 +132,13 @@ problem_mix_norm.add_equation("div(grad_psi) + lift(tau_psi2) + tau_psi = rho")
 problem_mix_norm.add_equation("dy(psi)(y=-1) = 0")
 problem_mix_norm.add_equation("dy(psi)(y=1) = 0")
 problem_mix_norm.add_equation("integ(psi) = 0")
-solve_psi = problem_mix_norm.build_solver()
-solve_psi.solve()
-
-# Base-flow
-u0['g'][0] = 1-y**2
+solver_psi = problem_mix_norm.build_solver()
 
 # Cost functional
 J = (alpha/2*d3.integ(d3.grad(psi)@d3.grad(psi)) - (1-alpha)/(2*T)*cost_t)
 
 # Set up direct adjoint loop
-post_solvers = [solve_psi]
+post_solvers = [solver_psi]
 dal = tools.direct_adjoint_loop(solver, total_steps, timestep, J, adjoint_dependencies=[u, rho], post_solvers=post_solvers)
 
 # Set up vectors
@@ -170,8 +165,6 @@ def cost(vec_u):
     global_to_local_vec.vector_to_field(vec_u, u)
     norm = reducer.global_max((0.5*d3.integ(u@u)/(8*np.pi))['g'])
     logger.debug('|u| = %g' % (norm))
-    u.change_scales(1)
-    u['g'] += u0['g']
     rho.change_scales(1)
     rho['g'] = -0.5*erf(y/0.125)
     cost_t['g'] = 0
@@ -193,15 +186,15 @@ def grad(vec_u):
 phi = dist.Field(name='phi', bases=(xbasis, ybasis)) # Streamfunction
 def random_point():
     # Parallel-safe random point for u
-    phi.fill_random()
+    phi.fill_random(layout='g')
     phi.low_pass_filter(scales=0.6)
     u.change_scales(dealias)
     u['g'][0] = dy(phi)['g']
     u['g'][1] = -dx(phi)['g']
     u.change_scales(1)
     data = u.allgather_data(layout=weight_layout).flatten().reshape((-1, 1))
-    u[weight_layout] /= np.sqrt(np.vdot(data, weight_sp@data))
-    return u.allgather_data(layout=weight_layout).flatten().reshape((-1, 1))
+    data /= np.sqrt(np.vdot(data, weight_sp@data))
+    return data.reshape((-1, 1))
 
 if test:
     point_0 = random_point()
@@ -246,13 +239,12 @@ else:
         np.savez('convergence', iterations=iterations, costs=costs, gradient_norms=gradient_norms)
 
     snapshots = solver.evaluator.add_file_handler(Path(data_dir, 'snapshots'), sim_dt = 0.1, mode='overwrite')
-    u_pert = u - u0
-    vorticity = -d3.div(d3.skew(u_pert))
-    snapshots.add_task(u_pert, name='u_pert')
+    vorticity = -d3.div(d3.skew(u))
+    snapshots.add_task(u)
     snapshots.add_task(vorticity, name='vorticity')
     snapshots.add_task(rho)
 
     timeseries = solver.evaluator.add_file_handler(Path(data_dir, 'timeseries'), sim_dt = 5e-3, mode='overwrite')
-    timeseries.add_task(0.5*d3.integ(u_pert@u_pert)/(8*np.pi), name='KE')
+    timeseries.add_task(0.5*d3.integ(u@u)/(8*np.pi), name='KE')
 
     cost(sol.point)
