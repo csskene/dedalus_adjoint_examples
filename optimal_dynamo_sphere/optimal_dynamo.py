@@ -34,9 +34,11 @@ import pymanopt
 from pymanopt.optimizers import ConjugateGradient
 from pymanopt.manifolds.product import Product
 from checkpoint_schedules import SingleMemoryStorageSchedule, HRevolve
-import adjoint_tools as tools
 from scipy.stats import linregress
 from docopt import docopt
+from dedalus.extras.flow_tools import GlobalArrayReducer
+
+reducer = GlobalArrayReducer(MPI.COMM_WORLD)
 
 args = docopt(__doc__)
 logger = logging.getLogger(__name__)
@@ -45,11 +47,9 @@ ncpu = comm.size
 rank = comm.rank
 
 # TODO: would be nice to remove sys
-sys.path.append('../manifolds')
+sys.path.append('../modules')
 from generalized_stiefel import GeneralizedStiefel
-
-from dedalus.extras.flow_tools import GlobalArrayReducer
-reducer = GlobalArrayReducer(MPI.COMM_WORLD)
+import ivp_adjoint_tools as tools
 
 # Parameters
 dtype = np.float64
@@ -274,9 +274,7 @@ def random_point():
     random_point.append(data)
     return random_point
 
-###############
-# Taylor test #
-###############
+# Taylor test
 if test:
     point_0 = random_point()
     point_p = random_point()

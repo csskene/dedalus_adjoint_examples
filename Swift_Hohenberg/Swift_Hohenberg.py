@@ -2,135 +2,145 @@
 The script solves the optimal intial condition problem from 
 'Connection between nonlinear energy optimization and instantons'
 D. Lecoanet and R.R. Kerswell - Phys. Rev. E 97, 012212, 2018
-This example finds the optimal condition that maximises the time-integrated energy
+This example finds the optimal initial condition that maximises the 
+time-integrated energy
+
+Usage:
+    Swift_Hohenberg.py [options]
+
+Options:
+    --test                      Run test only
 """
 import numpy as np
-
 from dedalus import public as d3
 import logging
-import matplotlib.pyplot as plt
+import scipy.sparse as sp
+from scipy.stats import linregress
 import pymanopt
 from pymanopt.optimizers import ConjugateGradient
-from pymanopt.tools.diagnostics import check_gradient
-import uuid
-import scipy.sparse as sp
+from checkpoint_schedules import SingleMemoryStorageSchedule
+from docopt import docopt
 
-# Just for now
+# TODO: would be nice to remove sys
 import sys
-sys.path.append('../manifolds')
-from Generalised_Stiefel import Generalised_Stiefel
+sys.path.append('../modules')
+from generalized_stiefel import GeneralizedStiefel
+import ivp_adjoint_tools as tools
 
 logger = logging.getLogger(__name__)
-logging.getLogger().setLevel(logging.WARNING)
+
 # Parameters
 N = 256
 dealias = 2
 timestep = 0.05
 timestepper = d3.SBDF2
-test = True
+total_steps = int(50/timestep)
+E0 = 0.2159*1.01
+a = -0.3
 
-NIter = int(50/timestep)
-E0 = 0.2159
+# Parse arguments
+args = docopt(__doc__)
+test = args['--test']
 
+# Domain and bases
 coords = d3.CartesianCoordinates('x')
 dist = d3.Distributor(coords, dtype=np.float64)
 xbasis = d3.RealFourier(coords['x'], size=N, bounds=(0, 12*np.pi), dealias=dealias)
+x, = dist.local_grids(xbasis)
 
-# Global weight matrix
+# Global weight matrix in coefficient space
 weight = 6*np.ones((N))*np.pi
 weight[0] *= 2
-weight /= 6
-x, = dist.local_grids(xbasis)
-u = dist.Field(name='u',bases=xbasis)
-cost_t = dist.Field(name='cost_t')
-u0 = dist.Field(name='u0',bases=xbasis)
-dx = lambda A: d3.Differentiate(A,coords['x'])
-a = -0.3
+weight *= 0.5/6/E0
 
-problem = d3.IVP([u,cost_t], namespace=locals())
+# Fields and substitutions
+u = dist.Field(name='u', bases=xbasis)
+cost_t = dist.Field(name='cost_t')
+u0 = dist.Field(name='u0', bases=xbasis)
+dx = lambda A: d3.Differentiate(A, coords['x'])
+
+# Problem and solver
+problem = d3.IVP([u, cost_t], namespace=locals())
 problem.add_equation("dt(u) + u + 2*dx(dx(u)) + dx(dx(dx(dx(u)))) - a*u = 1.8*u**2 - u**3")
-problem.add_equation("dt(cost_t) = d3.integ(0.5*u**2)")
+problem.add_equation("dt(cost_t) = 0.5*integ(u**2)")
 solver = problem.build_solver(timestepper)
 
 # Cost functional
 J = -cost_t
-Jadj = J.evaluate().copy_adjoint()
-checkpoints = {u: []}
-timestep_function = lambda : timestep
-# Define cost and gradient routines
-def forward(vec):
-    # Reset solver
-    solver.reset()
-    solver.stop_iteration = NIter
-    # Scale to have energy E0
-    u['c'] = vec[:,0]*np.sqrt(E0/0.5)
-    # Uncomment to check norms
-    # print('sin(0)' ,vec[1])
-    # print('Norm', E0*np.vdot(vec,weight_sp@vec))
-    # print('Dedalus', (1/12*d3.integ(u**2))['g'])
-    cost_t['c'] = 0
-    checkpoints[u].clear()
-    solver.evolve(timestep_function=timestep_function, checkpoints=checkpoints)
-    cost = np.max(J['g'])
-    return cost
 
-def backward():
-    # Reset adjoint solver
-    solver.iteration = NIter
-    # Accumulate cotangents
-    cotangents = {}
-    Jadj['g'] = 1
-    cotangents[J] = Jadj
-    id = uuid.uuid4()
-    _, cotangents =  J.evaluate_vjp(cotangents,id=id,force=True)
-    cotangents = solver.compute_sensitivities(cotangents, checkpoints=checkpoints)
-    return cotangents[u]['c']*np.sqrt(E0/0.5)
+# Set up direct adjoint loop
+dal = tools.direct_adjoint_loop(solver, total_steps, timestep, J, adjoint_dependencies=[u])
 
-# Manifold for optimisation
+# Set up checkpointing
+create_schedule = lambda : SingleMemoryStorageSchedule()
+manager = tools.CheckpointingManager(create_schedule, dal)  # Create the checkpointing manager.
+
+# Set up manifold
 weight_sp = sp.diags(weight.flatten())
 weight_inv = sp.diags(1/weight.flatten())
-manifold = Generalised_Stiefel(N, 1, weight_sp, Binv=weight_inv, k=1, retraction="polar")
+manifold = GeneralizedStiefel(N, 1, weight_sp, Binv=weight_inv, retraction="qr")
 
-@pymanopt.function.numpy(manifold)  
-def cost(vecU):
-    return forward(vecU)
+num_fun_evals = 0
+num_grad_evals = 0
+# Set up cost and gradient routines
+@pymanopt.function.numpy(manifold)
+def cost(vec_u):
+    global num_fun_evals
+    num_fun_evals += 1
+    u['c'] = vec_u[:, 0]
+    cost_t['c'] = 0
+    dal.reset_initial_condition()
+    manager.execute(mode='forward')
+    return dal.functional()
 
 @pymanopt.function.numpy(manifold)
-def grad(vecU):
-    # Can comment cost evaluation if sure that optimiser always runs cost before gradient internally.
-    # forward(vecU)
-    grad = backward().reshape((N,1))
-    return grad
+def grad(vec_u):
+    global num_grad_evals
+    num_grad_evals += 1
+    # Note, cost is always run directly before grad, so no need to recompute
+    # the forward pass. Checkpoints are already in manager
+    manager.execute(mode='reverse')
+    cotangents = dal.gradient()
+    return cotangents[u]['c'].reshape((-1, 1))
 
-problem = pymanopt.Problem(manifold, cost, euclidean_gradient=grad)
+def random_point():
+    # Random point for u
+    # Must use to ensure sin(0) mode has zero coefficient
+    u.fill_random(layout='g')
+    u.low_pass_filter(scales=0.6)
+    data = u['c'].copy()
+    data /= np.sqrt(np.vdot(data, weight_sp@data))
+    return data.reshape((-1, 1))
 
-# check_gradient(problem)
-verbosity = 2
-log_verbosity = 1
-
-# Must create initial point manually to avoid sin(0) mode being populated
-u.fill_random(layout='c')
-norm = np.sqrt(np.max((d3.integ(u**2)/6)['g']))
-initial_point = u['c']/norm
-initial_point = initial_point.reshape(-1, 1)
-
-costs = []
-E_list = [0.2159*0.98,0.2159*1.02]
-opt_points = []
-for E0 in E_list:
+if test:
+    point_0 = random_point()
+    point_p = random_point()
+    residual = []
+    cost_0 = cost(point_0)
+    grad_0 = grad(point_0)
+    dJ = np.vdot(grad_0, point_p)
+    eps = 1e-4
+    eps_list = []
+    for i in range(10):
+        eps_list.append(eps)
+        point = point_0 + eps*point_p
+        cost_p = cost(point)
+        residual.append(np.abs(cost_p - cost_0 - eps*dJ))
+        eps /= 2
+    regression = linregress(np.log(eps_list), y=np.log(residual))
+    logger.info('Result of Taylor test %f' % (regression.slope))
+    np.savez('swift_test', eps=np.array(eps_list), residual=np.array(residual))
+else:
     # Perform the optimisation
-    optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=100,  log_verbosity=log_verbosity, min_gradient_norm=1e-6)
-    sol = optimizer.run(problem, initial_point=initial_point)
-    opt_points.append(sol.point)
-    initial_point = sol.point
-    costs.append(sol.cost)
+    initial_point = random_point()
+    problem_opt = pymanopt.Problem(manifold, cost, euclidean_gradient=grad)
+    optimizer = ConjugateGradient(verbosity=2, max_time=np.inf, max_iterations=400, min_gradient_norm=1e-3, log_verbosity=1)
+    sol = optimizer.run(problem_opt, initial_point=initial_point)
 
-# Get output for optimal seed (E1)
-snapshots_E1 = solver.evaluator.add_file_handler('snapshots_E1', sim_dt = 0.5, mode='overwrite')
-snapshots_E1.add_task(u)
-cost(opt_points[0])
+    logger.info('Number of function evaluations {0:d}'.format(num_fun_evals))
+    logger.info('Number of gradient evaluations {0:d}'.format(num_grad_evals))
 
-# Get output for optimal seed (E2)
-snapshots_E2 = solver.evaluator.add_file_handler('snapshots_E2', sim_dt = 0.5, mode='overwrite')
-snapshots_E2.add_task(u)
-cost(opt_points[1])
+    # Get outputs
+    snapshots = solver.evaluator.add_file_handler('snapshots', sim_dt = 0.5, mode='overwrite')
+    snapshots.add_task(u)
+    cost(sol.point)
