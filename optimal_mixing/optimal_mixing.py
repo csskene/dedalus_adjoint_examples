@@ -60,7 +60,7 @@ test = args['--test']
 coords = d3.CartesianCoordinates('x', 'y')
 dist = d3.Distributor(coords, dtype=np.float64)
 xbasis = d3.RealFourier(coords['x'], size=Nx, bounds=(0, 4*np.pi), dealias=dealias)
-ybasis = d3.Chebyshev(coords['y'], size=Ny, bounds=(-1, 1), dealias=dealias)
+ybasis = d3.Legendre(coords['y'], size=Ny, bounds=(-1, 1), dealias=dealias)
 x, y = dist.local_grids(xbasis, ybasis)
 ex, ey = coords.unit_vector_fields(dist)
 
@@ -192,6 +192,7 @@ def random_point():
     u['g'][0] = dy(phi)['g']
     u['g'][1] = -dx(phi)['g']
     u.change_scales(1)
+    u.fill_random(layout='g')
     data = u.allgather_data(layout=weight_layout).flatten().reshape((-1, 1))
     data /= np.sqrt(np.vdot(data, weight_sp@data))
     return data.reshape((-1, 1))
@@ -220,7 +221,8 @@ else:
     log_verbosity = 1*(comm.rank==0)
     problem_opt = pymanopt.Problem(manifold, cost, euclidean_gradient=grad)
     optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=400, min_gradient_norm=1e-2, log_verbosity=1)
-    sol = optimizer.run(problem_opt)
+    initial_point = random_point()
+    sol = optimizer.run(problem_opt, initial_point=initial_point)
 
     logger.info('Number of function evaluations {0:d}'.format(num_fun_evals))
     logger.info('Number of gradient evaluations {0:d}'.format(num_grad_evals))
