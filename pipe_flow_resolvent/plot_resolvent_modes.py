@@ -33,7 +33,7 @@ cmap = 'RdBu_r'
 with h5py.File(filename, mode='r') as file:
     axgain.set_xlabel(r'$\omega$')
     axgain.set_ylabel(r'$\sigma$')
-    axgain.grid(True)
+    #axgain.grid(True)
     axgain.set_ylim([1, 4e3])
     axgain.set_xlim([0, 1.44])
     omega = file['tasks/omega']
