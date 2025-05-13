@@ -6,8 +6,8 @@ The neutral curve is computed as follows
 1. Starting from a point, calculate the least stable eigenvalue and its
 gradient with respect to the streamwise wavenumber alpha, and regularised
 Reynolds number R=log_10(Re)/5 .
-2. Perform a Newton solve in this direction of steepest ascent, to find 
-(alpha, R) that lies on the neutral curve. 
+2. Perform a Newton solve in this direction of steepest ascent, to find
+(alpha, R) that lies on the neutral curve.
 3. From the point on the neutral curve, compute the tangent vector
 and step in this direction to find a new starting point.
 4. Repeat steps 1-3 to compute the neutral curve over a specified region.
@@ -90,19 +90,22 @@ alpha = dist.Field(name='alpha')
 # Substitutions
 lift_basis = ybasis.derivative_basis(2)
 lift = lambda A, n: d3.Lift(A, lift_basis, n)
+dt = lambda A: omega*A
+dx = lambda A: 1j*alpha*A
 dy = lambda A: d3.Differentiate(A, coords['y'])
+dz = lambda A: 1j*beta*A
+lap = lambda A: dx(dx(A)) + dy(dy(A)) + dz(dz(A))
 
 # Base flow
 U = dist.Field(name='U',bases=(ybasis))
 U['g'] = y*(2-y)
-Uy = dy(U)
 
 # Problem
 problem = d3.EVP([u, v, w, p, tau_u_1, tau_u_2, tau_v_1, tau_v_2, tau_w_1, tau_w_2], eigenvalue=omega, namespace=locals())
-problem.add_equation("omega*u + 1j*alpha*u*U + v*Uy - 1/Re*(dy(dy(u))-alpha**2*u-beta**2*u) + lift(tau_u_1,-1) + lift(tau_u_2,-2) + 1j*alpha*p = 0")
-problem.add_equation("omega*v + 1j*alpha*v*U - 1/Re*(dy(dy(v))-alpha**2*v-beta**2*v) + lift(tau_v_1,-1) + lift(tau_v_2,-2) + dy(p) = 0")
-problem.add_equation("omega*w + 1j*alpha*w*U - 1/Re*(dy(dy(w))-alpha**2*w-beta**2*w) + lift(tau_w_1,-1) + lift(tau_w_2,-2) + 1j*beta*p = 0")
-problem.add_equation("1j*alpha*u + dy(v) + 1j*beta*w = 0")
+problem.add_equation("dt(u) + U*dx(u) + v*dy(U) - 1/Re*lap(u) + lift(tau_u_1,-1) + lift(tau_u_2,-2) + dx(p) = 0")
+problem.add_equation("dt(v) + U*dx(v)           - 1/Re*lap(v) + lift(tau_v_1,-1) + lift(tau_v_2,-2) + dy(p) = 0")
+problem.add_equation("dt(w) + U*dx(w)           - 1/Re*lap(w) + lift(tau_w_1,-1) + lift(tau_w_2,-2) + dz(p) = 0")
+problem.add_equation("dx(u) + dy(v) + dz(w) = 0")
 # Boundary conditions
 problem.add_equation("u(y=0) = 0")
 problem.add_equation("u(y=2) = 0")
