@@ -6,7 +6,9 @@ import dedalus.public as d3
 import numpy as np
 from dedalus.tools import jacobi
 import scipy.sparse as sp
+from mpi4py import MPI
 logger = logging.getLogger(__name__)
+comm = MPI.COMM_WORLD
 
 # Parameters
 Ny = 128
@@ -17,7 +19,7 @@ Re = 3000
 
 # Bases and domain
 coords = d3.CartesianCoordinates('y')
-dist = d3.Distributor(coords, dtype=dtype)
+dist = d3.Distributor(coords, dtype=dtype, comm=MPI.COMM_SELF)
 ybasis = d3.Legendre(coords['y'], size=Ny, dealias=1, bounds=(0, 2))
 y, = dist.local_grids(ybasis)
 
@@ -116,24 +118,38 @@ def create_lin_op(total_steps):
 Phi = create_lin_op(100)
 vec1 = np.random.rand(Ny*3) + 1j*np.random.rand(Ny*3)
 vec2 = np.random.rand(Ny*3) + 1j*np.random.rand(Ny*3)
-term2 = np.vdot(Phi.H@vec2,vec1)
-term1 = np.vdot(vec2, Phi@vec1)
-term2 = np.vdot(Phi.H@vec2,vec1)
+term2 = np.vdot(Phi.H@vec2, vec1)
 term1 = np.vdot(vec2, Phi@vec1)
 logger.info('Adjoint error = %g' % np.abs(term1-term2))
 
 # Loop over final times and compute transient growth
 ts_tg = time.time()
-gains = []
-times = []
-for total_steps in range(100)[1::5]:
+local_gains = []
+local_times = []
+global_total_steps = np.array(range(100)[1::5])
+local_total_steps = global_total_steps[comm.rank::comm.size]
+for total_steps in local_total_steps:
     Phi = create_lin_op(total_steps)
     ts = time.time()
     UH, sigma, V = sp.linalg.svds(Phi, k=1)
     logger.info('T = %f, Time taken for SVD = %f s' % (total_steps*0.5, time.time()-ts))
-    gains.append(sigma[-1]**2)
-    times.append(total_steps*0.5)
+    local_gains.append(sigma[-1]**2)
+    local_times.append(total_steps*0.5)
 logger.info('Time taken for whole sweep %f' % (time.time()-ts_tg))
 
+# Gather outputs
+global_outputs = []
+for local_output in [local_times, local_gains]:
+    local_output = np.array(local_output)
+    global_output = np.zeros_like(global_total_steps, dtype=np.float64)
+    global_output[comm.rank::comm.size] = local_output
+    if comm.rank == 0:
+        comm.Reduce(MPI.IN_PLACE, global_output, op=MPI.SUM, root=0)
+    else:
+        comm.Reduce(global_output, global_output, op=MPI.SUM, root=0)
+    global_outputs.append(global_output)
+
 # Save output
-np.savez('transient_growth', times=times, gains=gains)
+if comm.rank==0:
+    np.savez('transient_growth', times=global_outputs[0], 
+             gains=global_outputs[1])

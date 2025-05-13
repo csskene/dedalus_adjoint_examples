@@ -6,7 +6,9 @@ import dedalus.public as d3
 import numpy as np
 from dedalus.tools import jacobi
 import scipy.sparse as sp
+from mpi4py import MPI
 logger = logging.getLogger(__name__)
+comm = MPI.COMM_WORLD
 
 # Parameters
 Ny = 128
@@ -17,7 +19,7 @@ Re = 5000
 
 # Bases and domain
 coords = d3.CartesianCoordinates('y')
-dist = d3.Distributor(coords, dtype=dtype)
+dist = d3.Distributor(coords, dtype=dtype, comm=MPI.COMM_SELF)
 ybasis = d3.Legendre(coords['y'], size=Ny, dealias=1, bounds=(0, 2))
 y, = dist.local_grids(ybasis)
 
@@ -121,17 +123,28 @@ logger.info('Adjoint error = %g' % np.abs(term1-term2))
 
 # Loop over frequencies and compute the gain
 ts_tg = time.time()
-gains = []
-omegas = np.linspace(0.1, 1.5, 120)
-for om in omegas:
+local_gains = []
+omega_global = np.linspace(0.1, 1.5, 120)
+omega_local = omega_global[comm.rank::comm.size]
+for om in omega_local:
     omega['g'] = om
     # Perform one solve to rebuild matrices
     solver.solve(rebuild_matrices=True)
     ts = time.time()
     UH, sigma, V = sp.linalg.svds(R, k=1)
     logger.info('om = %f, Time taken for SVD = %f s' % (om, time.time()-ts))
-    gains.append(sigma[-1]**2)
+    local_gains.append(sigma[-1]**2)
 logger.info('Time taken for whole sweep %f' % (time.time()-ts_tg))
 
+# Gather outputs
+local_gains = np.array(local_gains)
+gains = np.zeros_like(omega_global)
+gains[comm.rank::comm.size] = local_gains
+if comm.rank == 0:
+    comm.Reduce(MPI.IN_PLACE, gains, op=MPI.SUM, root=0)
+else:
+    comm.Reduce(gains, gains, op=MPI.SUM, root=0)
+
 # Save output
-np.savez('resolvent_gains', omega=omegas, gains=gains)
+if comm.rank==0:
+    np.savez('resolvent_gains', omega=omega_global, gains=gains)

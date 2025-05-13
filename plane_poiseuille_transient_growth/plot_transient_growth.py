@@ -15,7 +15,7 @@ gains = data['gains']
 
 # Plot the transient growth verus time
 fig = plt.figure(figsize=(6, 4))
-plt.semilogy(times, gains,'-.')
+plt.semilogy(times, gains, '-.')
 plt.ylabel("Gain")
 plt.xlabel("T")
 plt.title("Optimal gains for plane Poiseuille flow")
