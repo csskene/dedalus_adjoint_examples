@@ -192,7 +192,6 @@ def random_point():
     u['g'][0] = dy(phi)['g']
     u['g'][1] = -dx(phi)['g']
     u.change_scales(1)
-    u.fill_random(layout='g')
     data = u.allgather_data(layout=weight_layout).flatten().reshape((-1, 1))
     data /= np.sqrt(np.vdot(data, weight_sp@data))
     return data.reshape((-1, 1))
