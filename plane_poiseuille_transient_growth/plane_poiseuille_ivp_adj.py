@@ -38,20 +38,22 @@ tau_p = dist.Field(name='tau_p')
 
 # Substitutions
 lift_basis = ybasis.derivative_basis(2)
+dx = lambda A: 1j*alpha*A
 lift = lambda A, n: d3.Lift(A, lift_basis, n)
 dy = lambda A: d3.Differentiate(A, coords['y'])
+dz = lambda A: 1j*beta*A
+lap = lambda A: dx(dx(A)) + dy(dy(A)) + dz(dz(A))
 
 # Base flow
 U = dist.Field(name='U', bases=ybasis)
 U['g'] = y*(2-y)
-Uy = dy(U)
 
 # Problem
 problem = d3.IVP([u, v, w, p, tau_u_1, tau_u_2, tau_v_1, tau_v_2, tau_w_1, tau_w_2], namespace=locals())
-problem.add_equation("dt(u) + 1j*alpha*u*U + v*Uy - 1/Re*(dy(dy(u)) - alpha**2*u - beta**2*u) + lift(tau_u_1,-1) + lift(tau_u_2,-2) + 1j*alpha*p = 0")
-problem.add_equation("dt(v) + 1j*alpha*v*U - 1/Re*(dy(dy(v)) - alpha**2*v - beta**2*v) + lift(tau_v_1,-1) + lift(tau_v_2,-2) + dy(p) = 0")
-problem.add_equation("dt(w) + 1j*alpha*w*U - 1/Re*(dy(dy(w)) - alpha**2*w - beta**2*w) + lift(tau_w_1,-1) + lift(tau_w_2,-2) + 1j*beta*p = 0")
-problem.add_equation("1j*alpha*u + dy(v) + 1j*beta*w = 0")
+problem.add_equation("dt(u) + U*dx(u) + v*dy(U) - 1/Re*lap(u) + lift(tau_u_1,-1) + lift(tau_u_2,-2) + dx(p) = 0")
+problem.add_equation("dt(v) + U*dx(v)           - 1/Re*lap(v) + lift(tau_v_1,-1) + lift(tau_v_2,-2) + dy(p) = 0")
+problem.add_equation("dt(w) + U*dx(w)           - 1/Re*lap(w) + lift(tau_w_1,-1) + lift(tau_w_2,-2) + dz(p) = 0")
+problem.add_equation("dx(u) + dy(v) + dz(w) = 0")
 # Boundary conditions
 problem.add_equation("u(y=0) = 0")
 problem.add_equation("u(y=2) = 0")
