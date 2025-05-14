@@ -92,7 +92,7 @@ with h5py.File(filename, mode='r') as file:
 
     # Load the fields
     u_phi = np.array(dset_u[0][0])
-    u_r = np.array(dset_u[0][0])
+    u_r = np.array(dset_u[0][1])
     u_z = np.array(dset_w[0])
     u = extrapolate_data(r, phi, u_phi, u_r, u_z)
     f_phi = np.array(dset_f_disk[0][0])
@@ -106,7 +106,7 @@ with h5py.File(filename, mode='r') as file:
     labels = [[r"$u_\phi$", r"$u_r$", r"$u_z$"], [r"$f_\phi$", r"$f_r$", r"$f_z$"]]
     for i, flow in enumerate(flows):
         for j in range(3):
-            cplt = ax[3*i + j].contourf(x, y, flow[i].real, levels=100, cmap=cmap)
+            cplt = ax[3*i + j].contourf(x, y, flow[j].real, levels=100, cmap=cmap)
             # Rasterize
             cplt.set_rasterized(True)
             ax[3*i + j].set_title(labels[i][j], fontsize=title_size)
