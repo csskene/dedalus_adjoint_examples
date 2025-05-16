@@ -8,13 +8,57 @@ from checkpoint_schedules import StorageType, Forward, Reverse, Copy, Move, EndF
 import copy
 import uuid
 import os
+import logging
 from dedalus.extras.flow_tools import GlobalArrayReducer
 import functools, sys
+from scipy.stats import linregress
 
 comm = MPI.COMM_WORLD
 size = comm.size
 rank = comm.rank
+logger = logging.getLogger(__name__)
 reducer = GlobalArrayReducer(MPI.COMM_WORLD)
+
+def Taylor_test(cost, grad, random_point, initial_eps=1e-4):
+    '''
+    Performs the Taylor test to verify the gradient
+    '''
+    logger.info('Performing Taylor test')
+    point_0 = random_point()
+    point_p = random_point()
+    if isinstance(point_0, list):
+        # We are on a product manifold
+        manifold_product_len = len(point_0)
+        product_manifold = True
+    else:
+        manifold_product_len = 1
+        product_manifold = False
+    residual = []
+    if product_manifold:
+        cost_0 = cost(*point_0)
+        grad_0 = grad(*point_0)
+        dJ = 0
+        for i in range(manifold_product_len):
+            dJ += np.vdot(grad_0[i], point_p[i])
+    else:
+        cost_0 = cost(point_0)
+        grad_0 = grad(point_0)
+        dJ = np.vdot(grad_0, point_p)
+    eps = initial_eps
+    eps_list = []
+    for i in range(10):
+        eps_list.append(eps)
+        if product_manifold:
+            point = [point_0[j] + eps*point_p[j] for j in range(manifold_product_len)]
+            cost_p = cost(*point)
+        else:
+            point = point_0 + eps*point_p
+            cost_p = cost(point)
+        residual.append(np.abs(cost_p - cost_0 - eps*dJ))
+        eps /= 2
+    regression = linregress(np.log(eps_list), y=np.log(residual))
+    return regression.slope, eps_list, residual
+
 
 # TEMP for now
 class global_to_local:

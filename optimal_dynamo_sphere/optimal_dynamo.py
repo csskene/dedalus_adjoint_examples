@@ -34,7 +34,6 @@ import pymanopt
 from pymanopt.optimizers import ConjugateGradient
 from pymanopt.manifolds.product import Product
 from checkpoint_schedules import SingleMemoryStorageSchedule, HRevolve
-from scipy.stats import linregress
 from docopt import docopt
 from dedalus.extras.flow_tools import GlobalArrayReducer
 
@@ -276,30 +275,17 @@ def random_point():
 
 # Taylor test
 if test:
-    point_0 = random_point()
-    point_p = random_point()
-    residual = []
-    cost_0 = cost(*point_0)
-    grad_0 = grad(*point_0)
-    dJ = np.vdot(grad_0[0], point_p[0]) + np.vdot(grad_0[1], point_p[1])
-    eps = 1e-4
-    eps_list = []
-    for i in range(10):
-        eps_list.append(eps)
-        point = [point_0[j] + eps*point_p[j] for j in range(2)]
-        cost_p = cost(*point)
-        residual.append(np.abs(cost_p - cost_0 - eps*dJ))
-        eps /= 2
-    regression = linregress(np.log(eps_list), y=np.log(residual))
-    logger.info('Result of Taylor test %f' % (regression.slope))
-    np.savez('dynamo_test', eps=np.array(eps_list), residual=np.array(residual))
+    slope, eps_list, residual = tools.Taylor_test(cost, grad, random_point)
+    logger.info('Result of Taylor test %f' % (slope))
+    if rank==0:
+        np.savez('dynamo_test', eps=np.array(eps_list), residual=np.array(residual))
 else:
     # Perform the optimisation
     point = random_point()
     verbosity = 2*(comm.rank==0)
     log_verbosity = 1*(comm.rank==0)
     problem_opt = pymanopt.Problem(manifold, cost, euclidean_gradient=grad)
-    optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=400, min_gradient_norm=1e-2, log_verbosity=1)
+    optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=400, min_gradient_norm=1e-2, log_verbosity=log_verbosity)
     sol = optimizer.run(problem_opt, initial_point=point)
 
     logger.info('Number of function evaluations {0:d}'.format(num_fun_evals))
@@ -307,8 +293,7 @@ else:
     # Make data directory
     data_dir = Path('case_{0:s}_data_Rm_{1:5.03e}'.format(case, Rm))
     if rank == 0:  # only do this for the 0th MPI process
-        if not data_dir.exists():
-            data_dir.mkdir(parents=True)
+        data_dir.mkdir(parents=True, exists_ok=True)
 
     if comm.rank==0:
         iterations     = optimizer._log["iterations"]["iteration"]

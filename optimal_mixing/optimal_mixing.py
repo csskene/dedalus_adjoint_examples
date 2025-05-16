@@ -19,7 +19,6 @@ import scipy.sparse as sp
 from mpi4py import MPI
 from dedalus.extras.flow_tools import GlobalArrayReducer
 from dedalus.tools import jacobi
-from scipy.stats import linregress
 import pymanopt
 from pymanopt.optimizers import ConjugateGradient
 from checkpoint_schedules import SingleMemoryStorageSchedule, HRevolve
@@ -46,7 +45,7 @@ Peinv = 1./500
 Ri = 0.05
 dealias = 3/2
 T = 5
-alpha = 0
+alpha = 1
 timestep = 1e-3
 timestepper = d3.SBDF2
 total_steps = int(T/timestep)
@@ -197,29 +196,16 @@ def random_point():
     return data.reshape((-1, 1))
 
 if test:
-    point_0 = random_point()
-    point_p = random_point()
-    residual = []
-    cost_0 = cost(point_0)
-    grad_0 = grad(point_0)
-    dJ = np.vdot(grad_0, point_p)
-    eps = 1e-4
-    eps_list = []
-    for i in range(10):
-        eps_list.append(eps)
-        point = point_0 + eps*point_p
-        cost_p = cost(point)
-        residual.append(np.abs(cost_p - cost_0 - eps*dJ))
-        eps /= 2
-    regression = linregress(np.log(eps_list), y=np.log(residual))
-    logger.info('Result of Taylor test %f' % (regression.slope))
-    np.savez('mixing_test', eps=np.array(eps_list), residual=np.array(residual))
+    slope, eps_list, residual = tools.Taylor_test(cost, grad, random_point)
+    logger.info('Result of Taylor test %f' % (slope))
+    if rank==0:
+        np.savez('mixing_test', eps=np.array(eps_list), residual=np.array(residual))
 else:
     # Perform the optimisation
     verbosity = 2*(comm.rank==0)
     log_verbosity = 1*(comm.rank==0)
     problem_opt = pymanopt.Problem(manifold, cost, euclidean_gradient=grad)
-    optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=400, min_gradient_norm=1e-2, log_verbosity=1)
+    optimizer = ConjugateGradient(verbosity=verbosity, max_time=np.inf, max_iterations=400, min_gradient_norm=1e-2, log_verbosity=log_verbosity)
     initial_point = random_point()
     sol = optimizer.run(problem_opt, initial_point=initial_point)
 
