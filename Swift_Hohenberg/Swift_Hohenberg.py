@@ -113,22 +113,8 @@ def random_point():
     return data.reshape((-1, 1))
 
 if test:
-    point_0 = random_point()
-    point_p = random_point()
-    residual = []
-    cost_0 = cost(point_0)
-    grad_0 = grad(point_0)
-    dJ = np.vdot(grad_0, point_p)
-    eps = 1e-4
-    eps_list = []
-    for i in range(10):
-        eps_list.append(eps)
-        point = point_0 + eps*point_p
-        cost_p = cost(point)
-        residual.append(np.abs(cost_p - cost_0 - eps*dJ))
-        eps /= 2
-    regression = linregress(np.log(eps_list), y=np.log(residual))
-    logger.info('Result of Taylor test %f' % (regression.slope))
+    slope, eps_list, residual = tools.Taylor_test(cost, grad, random_point)
+    logger.info('Result of Taylor test %f' % (slope))
     np.savez('swift_test', eps=np.array(eps_list), residual=np.array(residual))
 else:
     # Perform the optimisation
