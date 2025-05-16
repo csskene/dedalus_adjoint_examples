@@ -6,6 +6,7 @@ import h5py
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
+from matplotlib import ticker
 
 plt.rcParams.update({
     "text.usetex": True})
@@ -68,6 +69,8 @@ axgain.set_ylabel(r'$\sigma$')
 #axgain.grid(True)
 axgain.set_ylim([1, 4e3])
 axgain.set_xlim([0, 1.44])
+axgain.set_yticks([1, 10, 100, 1000])
+axgain.yaxis.set_minor_locator(ticker.LogLocator(numticks=999, subs="auto"))
 axgain.legend()
 
 # Load file corresponding to the maximum gain
