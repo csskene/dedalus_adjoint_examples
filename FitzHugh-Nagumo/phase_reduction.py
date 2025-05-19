@@ -24,32 +24,8 @@ import numpy as np
 import dedalus.public as d3
 import dedalus.core.evaluator as evaluator
 from scipy.optimize import minimize
-
+from adjoint_helper_functions import evp_helpers
 logger = logging.getLogger(__name__)
-
-def set_state_adjoint(self, index, subsystem):
-    """
-    Set state vector to the specified eigenmode.
-    Parameters
-    ----------
-    index : int
-        Index of desired eigenmode.
-    subsystem : Subsystem object or int
-        Subsystem that will be set to the corresponding eigenmode.
-        If an integer, the corresponding subsystem of the last specified
-        eigenvalue_subproblem will be used.
-    """
-    # TODO: allow setting left modified eigenvectors?
-    subproblem = self.eigenvalue_subproblem
-    if isinstance(subsystem, int):
-        subsystem = subproblem.subsystems[subsystem]
-    # Check selection
-    if subsystem not in subproblem.subsystems:
-        raise ValueError("subsystem must be in eigenvalue_subproblem")
-    # Set coefficients
-    for var in self.state:
-        var['c'] = 0
-    subsystem.scatter(self.left_eigenvectors[:, index], self.state)
 
 if __name__=="__main__":
     # Parameters
@@ -154,7 +130,7 @@ if __name__=="__main__":
     logger.info('Floquet mode found has eigenvalue %g+1j(%g)' % (solver.eigenvalues[0].real, solver.eigenvalues[0].imag))
 
     # Normalise the phase sensitivity function
-    set_state_adjoint(solver, 0, solver.subsystems[0])
+    evp_helpers.set_state_adjoint(solver, 0, solver.subsystems[0])
     Zu['c'] = u['c']
     Zv['c'] = v['c']
     norm_field = np.conj(Zu)*du0dt + np.conj(Zv)*dv0dt # This function should be constant

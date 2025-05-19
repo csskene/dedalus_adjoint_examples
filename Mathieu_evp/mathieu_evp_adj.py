@@ -15,37 +15,12 @@ The gradient da/dq is found using the left eigenvectors.
 To run and plot:
     $ python3 mathieu_evp_adj.py
 """
-
-# Function to get adjoint eigenvector (as its not in Dedalus yet)
-def set_state_adjoint(self, index, subsystem):
-    """
-    Set state vector to the specified eigenmode.
-    Parameters
-    ----------
-    index : int
-        Index of desired eigenmode.
-    subsystem : Subsystem object or int
-        Subsystem that will be set to the corresponding eigenmode.
-        If an integer, the corresponding subsystem of the last specified
-        eigenvalue_subproblem will be used.
-    """
-    # TODO: allow setting left modified eigenvectors?
-    subproblem = self.eigenvalue_subproblem
-    if isinstance(subsystem, int):
-        subsystem = subproblem.subsystems[subsystem]
-    # Check selection
-    if subsystem not in subproblem.subsystems:
-        raise ValueError("subsystem must be in eigenvalue_subproblem")
-    # Set coefficients
-    for var in self.state:
-        var['c'] = 0
-    subsystem.scatter(self.left_eigenvectors[:, index], self.state)
-
 import logging, time
 import numpy as np
 import matplotlib.pyplot as plt
 import dedalus.public as d3
 from scipy.interpolate import CubicHermiteSpline
+from adjoint_helper_functions import evp_helpers
 logger = logging.getLogger(__name__)
 
 # Parameters
@@ -90,7 +65,7 @@ for qi in q_list:
     # Use the left eigenvectors to calculate the gradients
     sub_grad = []
     for index in range(10):
-        set_state_adjoint(solver, indices[index], solver.subsystems[0])
+        evp_helpers.set_state_adjoint(solver, indices[index], solver.subsystems[0])
         y_adj = y.copy()
         solver.set_state(indices[index], solver.subsystems[0])
         y_dir = y.copy()

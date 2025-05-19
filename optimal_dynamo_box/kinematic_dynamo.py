@@ -6,18 +6,20 @@ Options:
     --Rm=<Rm>                   Magnetic Reynolds number [default: 97.93]
     --test                      Whether to run the Taylor test
 """
-import logging, sys
+import logging
+from pathlib import Path
 import numpy as np
 from dedalus import public as d3
 from dedalus.extras.flow_tools import GlobalArrayReducer
 import scipy.sparse as sp
-from pathlib import Path
 from mpi4py import MPI
 from docopt import docopt
 import pymanopt
 from pymanopt.optimizers import ConjugateGradient
 from pymanopt.manifolds.product import Product
 from checkpoint_schedules import SingleMemoryStorageSchedule, HRevolve
+from adjoint_helper_functions.generalized_stiefel import GeneralizedStiefel
+from adjoint_helper_functions import ivp_helpers
 
 args = docopt(__doc__)
 logger = logging.getLogger(__name__)
@@ -25,11 +27,6 @@ comm = MPI.COMM_WORLD
 ncpu = comm.size
 rank = comm.rank
 reducer = GlobalArrayReducer(MPI.COMM_WORLD)
-
-# TODO: would be nice to remove sys
-sys.path.append('../modules')
-from generalized_stiefel import GeneralizedStiefel
-import ivp_adjoint_tools as tools
 
 # Parameters
 N = 24
@@ -104,10 +101,10 @@ J = -np.log(d3.Average(A@A))
 # Set up direct adjoint looper
 pre_solvers = [solver_u]
 
-dal = tools.direct_adjoint_loop(solver, total_steps, timestep, J, adjoint_dependencies=[u, A], pre_solvers=pre_solvers)
+dal = ivp_helpers.direct_adjoint_loop(solver, total_steps, timestep, J, adjoint_dependencies=[u, A], pre_solvers=pre_solvers)
 
 # Set up vectors
-global_to_local_vec = tools.global_to_local(weight_layout, omega)
+global_to_local_vec = ivp_helpers.global_to_local(weight_layout, omega)
 N_vec = np.prod(global_to_local_vec.global_shape)
 grad_omega = np.zeros(N_vec)
 grad_mag = np.zeros(N_vec)
@@ -119,7 +116,7 @@ manifold_GS = GeneralizedStiefel(N_vec, 1, weight_sp, Binv=weight_inv, retractio
 manifold = Product([manifold_GS, manifold_GS])
 
 create_schedule = lambda : SingleMemoryStorageSchedule()
-manager = tools.CheckpointingManager(create_schedule, dal)  # Create the checkpointing manager.
+manager = ivp_helpers.CheckpointingManager(create_schedule, dal)  # Create the checkpointing manager.
 
 num_fun_evals = 0
 num_grad_evals = 0
@@ -165,7 +162,7 @@ def random_point():
 
 # Taylor test
 if test:
-    slope, eps_list, residual = tools.Taylor_test(cost, grad, random_point)
+    slope, eps_list, residual = ivp_helpers.Taylor_test(cost, grad, random_point)
     logger.info('Result of Taylor test %f' % (slope))
     if rank==0:
         np.savez('box_dynamo_test', eps=np.array(eps_list), residual=np.array(residual))

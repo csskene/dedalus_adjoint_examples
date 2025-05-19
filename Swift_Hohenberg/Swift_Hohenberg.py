@@ -20,12 +20,8 @@ import pymanopt
 from pymanopt.optimizers import ConjugateGradient
 from checkpoint_schedules import SingleMemoryStorageSchedule
 from docopt import docopt
-
-# TODO: would be nice to remove sys
-import sys
-sys.path.append('../modules')
-from generalized_stiefel import GeneralizedStiefel
-import ivp_adjoint_tools as tools
+from adjoint_helper_functions.generalized_stiefel import GeneralizedStiefel
+from adjoint_helper_functions import ivp_helpers
 
 logger = logging.getLogger(__name__)
 
@@ -69,11 +65,11 @@ solver = problem.build_solver(timestepper)
 J = -cost_t
 
 # Set up direct adjoint loop
-dal = tools.direct_adjoint_loop(solver, total_steps, timestep, J, adjoint_dependencies=[u])
+dal = ivp_helpers.direct_adjoint_loop(solver, total_steps, timestep, J, adjoint_dependencies=[u])
 
 # Set up checkpointing
 create_schedule = lambda : SingleMemoryStorageSchedule()
-manager = tools.CheckpointingManager(create_schedule, dal)  # Create the checkpointing manager.
+manager = ivp_helpers.CheckpointingManager(create_schedule, dal)  # Create the checkpointing manager.
 
 # Set up manifold
 weight_sp = sp.diags(weight.flatten())
@@ -113,7 +109,7 @@ def random_point():
     return data.reshape((-1, 1))
 
 if test:
-    slope, eps_list, residual = tools.Taylor_test(cost, grad, random_point)
+    slope, eps_list, residual = ivp_helpers.Taylor_test(cost, grad, random_point)
     logger.info('Result of Taylor test %f' % (slope))
     np.savez('swift_test', eps=np.array(eps_list), residual=np.array(residual))
 else:
