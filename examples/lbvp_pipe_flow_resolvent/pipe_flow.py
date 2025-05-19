@@ -4,10 +4,9 @@ import numpy as np
 import dedalus.public as d3
 import read_vel
 import scipy.sparse as sp
-import scipy
 from mpi4py import MPI
 import dedalus.core.evaluator as evaluator
-import matplotlib.pyplot as plt
+from dedalus.libraries.dedalus_sphere import zernike
 
 logger = logging.getLogger(__name__)
 comm = MPI.COMM_WORLD
@@ -16,7 +15,7 @@ comm = MPI.COMM_WORLD
 Re = 74345.00585608807
 kz = 1
 m = 10
-Nphi = 2 * np.abs(m) + 2
+Nphi = 2*np.abs(m) + 2
 Nr = 128
 dtype = np.complex128
 
@@ -41,24 +40,15 @@ dz = lambda A: -1j*kz*A
 lift_basis = disk.derivative_basis(2)
 lift = lambda A: d3.Lift(A, lift_basis, -1)
 
-# Weight
-# TODO: Something better!
-dr = np.diff(r.squeeze())
-W = np.zeros(Nr)
-W[1:] = dr
-W[0] = dr[0]
-W = W*np.squeeze(r)
-M = np.sqrt(W)
+# Weight matrix
+z, weights = zernike.quadrature(2, Nr, k=0)
+weights *= 2*np.pi
+M = np.sqrt(weights)
 Minv = 1/M
-
 # Background (Load in turbulent profile)
 w0 = dist.Field(name='w0', bases=disk.radial_basis)
 profile = read_vel.get_vel(r)
-# w0['g'] = scipy.signal.savgol_filter(profile, 10, 3) # window size 10, polynomial order 3
 w0['g'] = profile
-# plt.plot(r.squeeze(), w0['g'].real.squeeze())
-# plt.show()
-# exit()
 # Forcing frequency
 omega = dist.Field(name='omega')
 
