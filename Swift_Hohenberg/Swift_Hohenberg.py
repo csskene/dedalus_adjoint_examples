@@ -11,11 +11,11 @@ Usage:
 Options:
     --test                      Run test only
 """
+import logging
 import numpy as np
 from dedalus import public as d3
-import logging
 import scipy.sparse as sp
-from scipy.stats import linregress
+from scipy.optimize import minimize
 import pymanopt
 from pymanopt.optimizers import ConjugateGradient
 from checkpoint_schedules import SingleMemoryStorageSchedule
@@ -122,10 +122,30 @@ else:
     problem_opt = pymanopt.Problem(manifold, cost, euclidean_gradient=grad)
     optimizer = ConjugateGradient(verbosity=2, max_time=np.inf, max_iterations=400, min_gradient_norm=1e-3, log_verbosity=1)
     sol = optimizer.run(problem_opt, initial_point=initial_point)
-
     logger.info('Number of function evaluations {0:d}'.format(num_fun_evals))
     logger.info('Number of gradient evaluations {0:d}'.format(num_grad_evals))
 
+    # Fix the phase so the minimum value is in the centre of the domain
+    u['c'] = sol.point[:, 0]
+    u.change_scales(1)
+    index = np.argmin(u['g'])
+    x_guess = x[index]
+    # Find x where u is minimised
+    eval_point = lambda A: np.max((u(x=A[0])).evaluate()['g'])
+    res = minimize(eval_point, x0=x_guess)
+    # Adjust coefficients to shift the solution
+    sin_cos_factors = u['c'].reshape(-1, 2)
+    # Shift on the native grid
+    shift = (res.x - 6*np.pi)/6
+    native_wavenumbers = xbasis.native_wavenumbers[::2]
+    shift_freqs = shift*native_wavenumbers
+    cos_vals = np.cos(shift_freqs)
+    sin_vals = np.sin(shift_freqs)
+    shift_mats = np.array([[cos_vals, -sin_vals], [-sin_vals, -cos_vals]])
+    # Apply shift matrices to sin_cos_factors
+    sin_cos_factors_shifted = np.einsum('ijn,nj->ni', shift_mats, sin_cos_factors)
+    sol.point[:, 0] = sin_cos_factors_shifted.reshape(-1)
+    
     # Get outputs
     snapshots = solver.evaluator.add_file_handler('snapshots', sim_dt = 0.5, mode='overwrite')
     snapshots.add_task(u)
