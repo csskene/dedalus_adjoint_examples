@@ -33,12 +33,12 @@ with np.load('phase_func.npz') as file:
     V = file['v']
 
 # Plot phase function and limit cycle
-lc = pax.pcolormesh(V, U, Psi, cmap='twilight', vmin=0, vmax=2*np.pi, shading='gouraud', rasterized=True)
-pax.plot(v0, u0, color='w', ls='--', lw=1)
-pax.set_xlim(-0.1, 1.7)
-pax.set_ylim(-2.2, 2.2)
-pax.set_xlabel(r"$v_0$")
-pax.set_ylabel(r"$u_0$")
+lc = pax.pcolormesh(U, V, Psi.T, cmap='twilight', vmin=0, vmax=2*np.pi, shading='gouraud', rasterized=True)
+pax.plot(u0, v0, color='w', ls='--', lw=1)
+pax.set_ylim(-0.1, 1.7)
+pax.set_xlim(-2.2, 2.2)
+pax.set_xlabel(r"$u_0$")
+pax.set_ylabel(r"$v_0$")
 
 # Colorbar
 cbar = plt.colorbar(lc, ax=pax, orientation='horizontal', location='top')
@@ -53,7 +53,7 @@ sax.plot(t, ZU, color='C0', label=r"$z_u$")
 sax.plot(t, ZV, color='C1', label=r"$z_v$")
 sax.set_ylim([-7, 7])
 sax.set_xlabel(r"$\theta$")
-sax.legend(loc='upper left')
+sax.legend(loc='lower left')
 
 # Save
 plt.tight_layout()

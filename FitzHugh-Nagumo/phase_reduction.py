@@ -23,6 +23,7 @@ import logging
 import numpy as np
 import dedalus.public as d3
 import dedalus.core.evaluator as evaluator
+from scipy.optimize import minimize
 
 logger = logging.getLogger(__name__)
 
@@ -134,11 +135,10 @@ if __name__=="__main__":
         logger.info(f'Perturbation norm: {pert_norm:.3e}')
 
     logger.info('T = {0:f}'.format(np.max(T0['g'])))
-    # Fix phase such that u0['c'] is imaginary and negative
-    c0 = u0['c'][1]
-    phi = np.arctan(c0.real/c0.imag)
-    if c0*np.exp(1j*phi)>0:
-        phi += np.pi
+    # Fix phase such that maximum occurs at zero phase
+    eval_u0 = lambda A: np.max(-u0(t=A[0])['g'])
+    res = minimize(eval_u0, x0=np.pi)
+    phi = res.x
     u0['c'] *= np.exp(1j*phi*tbasis.wavenumbers)
     v0['c'] *= np.exp(1j*phi*tbasis.wavenumbers)
 
