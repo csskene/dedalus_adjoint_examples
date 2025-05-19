@@ -23,18 +23,13 @@ import pymanopt
 from pymanopt.optimizers import ConjugateGradient
 from checkpoint_schedules import SingleMemoryStorageSchedule, HRevolve
 from docopt import docopt
-
-# TODO: would be nice to remove sys
-import sys
-sys.path.append('../modules')
-from generalized_stiefel import GeneralizedStiefel
-import ivp_adjoint_tools as tools
+from adjoint_helper_functions.generalized_stiefel import GeneralizedStiefel
+from adjoint_helper_functions import ivp_helpers
 
 logger = logging.getLogger(__name__)
 comm = MPI.COMM_WORLD
 ncpu = comm.size
 rank = comm.rank
-
 reducer = GlobalArrayReducer(comm)
 
 # Parameters
@@ -138,16 +133,16 @@ J = (alpha/2*d3.integ(d3.grad(psi)@d3.grad(psi)) - (1-alpha)/(2*T)*cost_t)
 
 # Set up direct adjoint loop
 post_solvers = [solver_psi]
-dal = tools.direct_adjoint_loop(solver, total_steps, timestep, J, adjoint_dependencies=[u, rho], post_solvers=post_solvers)
+dal = ivp_helpers.direct_adjoint_loop(solver, total_steps, timestep, J, adjoint_dependencies=[u, rho], post_solvers=post_solvers)
 
 # Set up vectors
-global_to_local_vec = tools.global_to_local(weight_layout, u)
+global_to_local_vec = ivp_helpers.global_to_local(weight_layout, u)
 N_vec = np.prod(global_to_local_vec.global_shape)
 grad_u = np.zeros(N_vec)
 
 # Set up checkpointing
 create_schedule = lambda : SingleMemoryStorageSchedule()
-manager = tools.CheckpointingManager(create_schedule, dal)  # Create the checkpointing manager.
+manager = ivp_helpers.CheckpointingManager(create_schedule, dal)  # Create the checkpointing manager.
 
 # Set up manifold
 weight_sp = sp.diags(np.hstack([weight.flatten(), weight.flatten()]))
@@ -196,7 +191,7 @@ def random_point():
     return data.reshape((-1, 1))
 
 if test:
-    slope, eps_list, residual = tools.Taylor_test(cost, grad, random_point)
+    slope, eps_list, residual = ivp_helpers.Taylor_test(cost, grad, random_point)
     logger.info('Result of Taylor test %f' % (slope))
     if rank==0:
         np.savez('mixing_test', eps=np.array(eps_list), residual=np.array(residual))

@@ -24,7 +24,7 @@ Options:
     --N_ram=<N_ram>             Number of checkpoints in ram [default: 400]
     --N_disk=<N_disk>           Number of checkpoints on disk [default: 50]
 """
-import logging, sys
+import logging
 from pathlib import Path
 import dedalus.public as d3
 import numpy as np
@@ -36,19 +36,15 @@ from pymanopt.manifolds.product import Product
 from checkpoint_schedules import SingleMemoryStorageSchedule, HRevolve
 from docopt import docopt
 from dedalus.extras.flow_tools import GlobalArrayReducer
-
-reducer = GlobalArrayReducer(MPI.COMM_WORLD)
+from adjoint_helper_functions.generalized_stiefel import GeneralizedStiefel
+from adjoint_helper_functions import ivp_helpers
 
 args = docopt(__doc__)
 logger = logging.getLogger(__name__)
 comm = MPI.COMM_WORLD
 ncpu = comm.size
 rank = comm.rank
-
-# TODO: would be nice to remove sys
-sys.path.append('../modules')
-from generalized_stiefel import GeneralizedStiefel
-import ivp_adjoint_tools as tools
+reducer = GlobalArrayReducer(MPI.COMM_WORLD)
 
 # Parameters
 dtype = np.float64
@@ -164,10 +160,10 @@ if case=='A' or case=='B0':
 elif case=='B':
     adjoint_dependencies=[B]
 
-dal = tools.direct_adjoint_loop(solver, total_steps, timestep, J, adjoint_dependencies=adjoint_dependencies, pre_solvers=pre_solvers)
+dal = ivp_helpers.direct_adjoint_loop(solver, total_steps, timestep, J, adjoint_dependencies=adjoint_dependencies, pre_solvers=pre_solvers)
 
 # Set up vectors
-global_to_local_vec = tools.global_to_local(weight_layout, omega)
+global_to_local_vec = ivp_helpers.global_to_local(weight_layout, omega)
 N_vec = np.prod(global_to_local_vec.global_shape)
 grad_omega = np.zeros(N_vec)
 grad_mag = np.zeros(N_vec)
@@ -186,7 +182,7 @@ if checkpoint:
     logger.info('Checkpointing with N_ram={0:d}, N_disk={1:d}'.format(N_ram, N_disk))
 else:
     create_schedule = lambda : SingleMemoryStorageSchedule()
-manager = tools.CheckpointingManager(create_schedule, dal)  # Create the checkpointing manager.
+manager = ivp_helpers.CheckpointingManager(create_schedule, dal)  # Create the checkpointing manager.
 
 num_fun_evals = 0
 num_grad_evals = 0
@@ -275,7 +271,7 @@ def random_point():
 
 # Taylor test
 if test:
-    slope, eps_list, residual = tools.Taylor_test(cost, grad, random_point)
+    slope, eps_list, residual = ivp_helpers.Taylor_test(cost, grad, random_point)
     logger.info('Result of Taylor test %f' % (slope))
     if rank==0:
         np.savez('dynamo_test', eps=np.array(eps_list), residual=np.array(residual))
