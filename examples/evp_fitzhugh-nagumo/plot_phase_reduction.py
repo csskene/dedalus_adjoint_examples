@@ -35,6 +35,12 @@ with np.load('phase_func.npz') as file:
 # Plot phase function and limit cycle
 lc = pax.pcolormesh(U, V, Psi.T, cmap='twilight', vmin=0, vmax=2*np.pi, shading='gouraud', rasterized=True)
 pax.plot(u0, v0, color='w', ls='--', lw=1)
+
+# Add equispaced arrows showing the flow direction
+for i in range(0, len(u0), 20):
+    pax.annotate('', xy=(u0[i], v0[i]), xytext=(u0[i-1], v0[i-1]),
+            arrowprops=dict(arrowstyle='->', color='w'))
+
 pax.set_ylim(-0.1, 1.7)
 pax.set_xlim(-2.2, 2.2)
 pax.set_xlabel(r"$u_0$")
