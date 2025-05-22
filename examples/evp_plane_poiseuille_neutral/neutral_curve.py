@@ -22,31 +22,8 @@ import logging
 import numpy as np
 import scipy
 from scipy.stats import linregress
+from adjoint_helper_functions import evp_helpers
 logger = logging.getLogger(__name__)
-
-def set_state_adjoint(self, index, subsystem):
-    """
-    Set state vector to the specified eigenmode.
-    Parameters
-    ----------
-    index : int
-        Index of desired eigenmode.
-    subsystem : Subsystem object or int
-        Subsystem that will be set to the corresponding eigenmode.
-        If an integer, the corresponding subsystem of the last specified
-        eigenvalue_subproblem will be used.
-    """
-    # TODO: allow setting left modified eigenvectors?
-    subproblem = self.eigenvalue_subproblem
-    if isinstance(subsystem, int):
-        subsystem = subproblem.subsystems[subsystem]
-    # Check selection
-    if subsystem not in subproblem.subsystems:
-        raise ValueError("subsystem must be in eigenvalue_subproblem")
-    # Set coefficients
-    for var in self.state:
-        var['c'] = 0
-    subsystem.scatter(self.left_eigenvectors[:, index], self.state)
 
 # Parameters
 Ny = 256
@@ -134,7 +111,7 @@ def eig_grad(point, solver, target):
     solver.solve_sparse(solver.subproblems[0], N=1, target=target, left=True, rebuild_matrices=True)
     index = np.argmax(solver.eigenvalues.real)
     # Set the adjoint_state
-    set_state_adjoint(solver, index, solver.subsystems[0])
+    evp_helpers.set_state_adjoint(solver, index, solver.subsystems[0])
     for field, adjoint_field in zip([u, v, w, p], [u_adj, v_adj, w_adj, p_adj]):
         adjoint_field['c'] = field['c']
     solver.set_state(index, solver.subsystems[0])
