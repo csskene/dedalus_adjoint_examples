@@ -6,4 +6,4 @@ They can be ran using the `d3-adjoint-rebase` branch from [this repository](http
 
 ## References
 
-[1] [Skene & Burns, "Fast automated adjoints for spectral PDE solvers"](https://csskene.github.io/assets/preprints/Skene_Burns_adjoints.pdf)
+[1] [Skene & Burns, "Fast automated adjoints for spectral PDE solvers"](https://arxiv.org/abs/2506.14792)
