@@ -145,13 +145,13 @@ def grad(vec_omega, vec_mag):
     global_to_local_vec.field_to_vector(grad_mag, cotangents[A])
     return [vec.reshape((-1, 1)) for vec in [grad_omega, grad_mag]]
 
-def random_point():
+def random_point(seeds=(None, None)):
     # Parallel-safe random point for omega and B
     # Take curl of random field to ensure
     # omega and B are divergence free
     random_point = []
     for i in range(2):
-        omega.fill_random()
+        omega.fill_random(seed=seeds[i])
         random_field = d3.curl(omega).evaluate()
         norm = reducer.global_max(d3.integ(random_field@random_field)['g'])/volume
         random_field['g'] /= np.sqrt(norm)
@@ -162,7 +162,9 @@ def random_point():
 
 # Taylor test
 if test:
-    slope, eps_list, residual = ivp_helpers.Taylor_test(cost, grad, random_point)
+    point0 = random_point(seeds=(1, 2))
+    pointp = random_point(seeds=(3, 4))
+    slope, eps_list, residual = ivp_helpers.Taylor_test(cost, grad, point0, pointp)
     logger.info('Result of Taylor test %f' % (slope))
     if rank==0:
         np.savez('box_dynamo_test', eps=np.array(eps_list), residual=np.array(residual))

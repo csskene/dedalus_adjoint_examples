@@ -178,9 +178,9 @@ def grad(vec_u):
     return grad_u.reshape((-1, 1))
 
 phi = dist.Field(name='phi', bases=(xbasis, ybasis)) # Streamfunction
-def random_point():
+def random_point(seed=None):
     # Parallel-safe random point for u
-    phi.fill_random(layout='g')
+    phi.fill_random(layout='g', seed=seed)
     phi.low_pass_filter(scales=0.6)
     u.change_scales(dealias)
     u['g'][0] = dy(phi)['g']
@@ -191,7 +191,9 @@ def random_point():
     return data.reshape((-1, 1))
 
 if test:
-    slope, eps_list, residual = ivp_helpers.Taylor_test(cost, grad, random_point)
+    point0 = random_point(seed=42)
+    pointp = random_point(seed=43)
+    slope, eps_list, residual = ivp_helpers.Taylor_test(cost, grad, point0, pointp)
     logger.info('Result of Taylor test %f' % (slope))
     if rank==0:
         np.savez('mixing_test', eps=np.array(eps_list), residual=np.array(residual))

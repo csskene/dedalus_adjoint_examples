@@ -19,13 +19,11 @@ rank = comm.rank
 logger = logging.getLogger(__name__)
 reducer = GlobalArrayReducer(MPI.COMM_WORLD)
 
-def Taylor_test(cost, grad, random_point, initial_eps=1e-4):
+def Taylor_test(cost, grad, point_0, point_p, initial_eps=1e-4):
     '''
     Performs the Taylor test to verify the gradient
     '''
     logger.info('Performing Taylor test')
-    point_0 = random_point()
-    point_p = random_point()
     if isinstance(point_0, list):
         # We are on a product manifold
         manifold_product_len = len(point_0)

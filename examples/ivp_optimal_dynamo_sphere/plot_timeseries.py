@@ -31,14 +31,14 @@ for idx, case in enumerate(['A', 'B']):
         time = time-time[0]
         y = np.log(np.squeeze(B_int))
         y -= y[0]
-        ax[1].plot(time, y, label=rf"Optimize $\|\mathbf{{{case}}}\|_2$", color='C3', linestyle=linestyles[idx],)
+        ax[1].plot(time, y, label=rf"Optimize $\|\mathbf{{{case}}}\|^2$", color='C3', linestyle=linestyles[idx],)
 labelLines(ax[1].get_lines()[0:1], yoffsets=0.11, zorder=2.5, backgroundcolor="none", xvals=[0.5], outline_color='none', fontsize=10)
 labelLines(ax[1].get_lines()[1:2], yoffsets=-0.13, zorder=2.5, backgroundcolor="none", xvals=[0.5], outline_color='none', fontsize=10)
 
-ax[0].set_ylabel(r'$\log\left(\|\mathbf{A}\|_2/\|\mathbf{A}(0)\|_2\right)$')
+ax[0].set_ylabel(r'$\log\left(\|\mathbf{A}\|^2/\|\mathbf{A}(0)\|^2\right)$')
 ax[0].set_ylim([0, None])
 ax[1].set_xlim([0, 1])
 ax[1].set_xlabel(r'$\hat{t}/ (L^2/\eta)$')
-ax[1].set_ylabel(r'$\log\left(\|\mathbf{B}\|_2/\|\mathbf{B}(0)\|_2\right)$')
+ax[1].set_ylabel(r'$\log\left(\|\mathbf{B}\|^2/\|\mathbf{B}(0)\|^2\right)$')
 
 plt.savefig('kinematic_ball_timeseries.pdf', bbox_inches='tight')
