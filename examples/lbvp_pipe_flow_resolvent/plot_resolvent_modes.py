@@ -59,9 +59,9 @@ ax = [ax0, ax1, ax2, ax3, ax4, ax5]
 # Plot resolvent gains
 with np.load('resolvent_gains.npz') as file:
     omega = file['omega']
-    axgain.semilogy(omega, file['gain_1'], 'C0', label=r'$\sigma_1$')
-    axgain.semilogy(omega, file['gain_2'], 'C1', label=r'$\sigma_2$')
-    axgain.semilogy(omega, file['gain_3'], 'C2', label=r'$\sigma_2$')
+    axgain.semilogy(omega, file['gain_1'], 'C0', linestyle='-', label=r'$\sigma_1$')
+    axgain.semilogy(omega, file['gain_2'], 'C1', linestyle='-', label=r'$\sigma_2$')
+    axgain.semilogy(omega, file['gain_3'], 'C2', linestyle='-', label=r'$\sigma_3$')
     # Find the optimal gain
     omega_max = omega[np.argmax(file['gain_1'])]
 axgain.set_xlabel(r'$\omega$')

@@ -99,17 +99,19 @@ def grad(vec_u):
     cotangents = dal.gradient()
     return cotangents[u]['c'].reshape((-1, 1))
 
-def random_point():
+def random_point(seed=None):
     # Random point for u
     # Must use to ensure sin(0) mode has zero coefficient
-    u.fill_random(layout='g')
+    u.fill_random(layout='g', seed=seed)
     u.low_pass_filter(scales=0.6)
     data = u['c'].copy()
     data /= np.sqrt(np.vdot(data, weight_sp@data))
     return data.reshape((-1, 1))
 
 if test:
-    slope, eps_list, residual = ivp_helpers.Taylor_test(cost, grad, random_point)
+    point0 = random_point(42)
+    pointp = random_point(43)
+    slope, eps_list, residual = ivp_helpers.Taylor_test(cost, grad, point0, pointp)
     logger.info('Result of Taylor test %f' % (slope))
     np.savez('swift_test', eps=np.array(eps_list), residual=np.array(residual))
 else:

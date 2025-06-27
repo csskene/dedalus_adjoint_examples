@@ -139,7 +139,7 @@ elif case=='B':
     problem.add_equation("radial(radial(grad(B)(r=Ro)) + (ellmult(B)/Ro)(r=Ro)) = 0", condition="ntheta!=0")
     problem.add_equation("radial(curl(B)(r=Ro)) = 0", condition="ntheta!=0")
     problem.add_equation("Pi(r=Ro) = 0")
-solver = problem.build_solver(d3.SBDF2)
+solver = problem.build_solver(d3.RK222)
 
 # Cost functional
 if case=='A':
@@ -238,12 +238,12 @@ def grad(vec_omega, vec_mag):
         global_to_local_vec.field_to_vector(grad_mag, cotangents[B])
     return [vec.reshape((-1, 1)) for vec in [grad_omega, grad_mag]]
 
-def random_point():
+def random_point(seeds=(None, None)):
     # Parallel-safe random point for omega and B
     # Use LBVPs to create initial guesses which are divergence
     # free and satisfy the correct boundary conditions
     random_point = []
-    omega.fill_random('g')
+    omega.fill_random('g', seed=seeds[0])
     omega.low_pass_filter(scales=0.25);omega['c'];omega['g']
     solver_u.solve()
     omega.change_scales(ball.dealias)
@@ -253,7 +253,7 @@ def random_point():
     omega.change_scales(1)
     data = omega.allgather_data(layout=weight_layout).flatten().reshape((-1, 1))
     random_point.append(data)
-    B0.fill_random('g')
+    B0.fill_random('g', seed=seeds[1])
     B0.low_pass_filter(scales=0.25);B0['c'];B0['g']
     solver_A.solve()
     if case=='A':
@@ -271,7 +271,9 @@ def random_point():
 
 # Taylor test
 if test:
-    slope, eps_list, residual = ivp_helpers.Taylor_test(cost, grad, random_point)
+    point0 = random_point(seeds=(1, 2))
+    pointp = random_point(seeds=(3, 4))
+    slope, eps_list, residual = ivp_helpers.Taylor_test(cost, grad, point0, pointp)
     logger.info('Result of Taylor test %f' % (slope))
     if rank==0:
         np.savez('dynamo_test', eps=np.array(eps_list), residual=np.array(residual))

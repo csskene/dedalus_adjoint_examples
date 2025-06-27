@@ -126,7 +126,8 @@ if __name__=="__main__":
     solver = problem.build_solver(ncc_cutoff=1e-12)
     nev = 1  #Find one eigenvalue
     target = 0  #Target the phase shift with eigenvalue 0
-    solver.solve_sparse(solver.subproblems[0], nev, target, left=True)
+    np.random.seed(seed=42) # Fix the seed for the example
+    solver.solve_sparse(solver.subproblems[0], nev, target, left=True, v0=np.random.rand(2*N))
     logger.info('Floquet mode found has eigenvalue %g+1j(%g)' % (solver.eigenvalues[0].real, solver.eigenvalues[0].imag))
 
     # Normalise the phase sensitivity function
@@ -139,8 +140,9 @@ if __name__=="__main__":
     Zv.change_scales(1)
     Zu['g'] /= np.conj(norm)
     Zv['g'] /= np.conj(norm)
-    norm = np.mean((np.conj(Zu)*du0dt + np.conj(Zv)*dv0dt)['g'])
-    logger.info("This should be 1: %f+1j*(%f)" % (norm.real, norm.imag))
+    error = np.max((np.conj(Zu)*du0dt + np.conj(Zv)*dv0dt)['g']-1)
+    logger.info("Error: %g" % (error))
+
     solver.set_state(0, solver.subsystems[0])
     # Normalise with the phase-shift given by du0/dt, dv0/dt
     u['c'] /= u['c'][1]/du0dt['c'][1]
