@@ -22,7 +22,6 @@ import logging
 import numpy as np
 import scipy
 from scipy.stats import linregress
-from adjoint_helper_functions import evp_helpers
 logger = logging.getLogger(__name__)
 
 # Parameters
@@ -93,16 +92,6 @@ problem.add_equation("w(y=2) = 0")
 # Create solver
 solver = problem.build_solver(ncc_cutoff=1e-10)
 
-# Create parametric sensitivity gradients
-dLudRe = d3.Convert(problem.eqs[0]['L'].sym_diff(R), ybasis_k2)
-dLvdRe = d3.Convert(problem.eqs[1]['L'].sym_diff(R), ybasis_k2)
-dLwdRe = d3.Convert(problem.eqs[2]['L'].sym_diff(R), ybasis_k2)
-
-dLudalpha = d3.Convert(problem.eqs[0]['L'].sym_diff(alpha), ybasis_k2)
-dLvdalpha = d3.Convert(problem.eqs[1]['L'].sym_diff(alpha), ybasis_k2)
-dLwdalpha = d3.Convert(problem.eqs[2]['L'].sym_diff(alpha), ybasis_k2)
-dLpdalpha = d3.Convert(problem.eqs[3]['L'].sym_diff(alpha), ybasis_k1)
-
 # Routine to compute the least stable eigenvalue and its gradient
 def eig_grad(point, solver, target):
     R['g'] = point[0]
@@ -110,18 +99,9 @@ def eig_grad(point, solver, target):
     # Solve the eigenvalue problem
     solver.solve_sparse(solver.subproblems[0], N=1, target=target, left=True, rebuild_matrices=True)
     index = np.argmax(solver.eigenvalues.real)
-    # Set the adjoint_state
-    evp_helpers.set_state_adjoint(solver, index, solver.subsystems[0])
-    for field, adjoint_field in zip([u, v, w, p], [u_adj, v_adj, w_adj, p_adj]):
-        adjoint_field['c'] = field['c']
-    solver.set_state(index, solver.subsystems[0])
-    # Get the gradient
-    grad_Re = 0
-    for adjoint_field, field in zip([u_adj, v_adj, w_adj], [dLudRe, dLvdRe, dLwdRe]):
-        grad_Re -= np.vdot(adjoint_field['c'], field['c'])
-    grad_alpha = 0
-    for adjoint_field, field in zip([u_adj, v_adj, w_adj, p_adj], [dLudalpha, dLvdalpha, dLwdalpha, dLpdalpha]):
-        grad_alpha -= np.vdot(adjoint_field['c'], field['c'])
+    # Compute sensitivities
+    grad_Re = solver.compute_sensitivity(R, index, solver.subsystems[0])
+    grad_alpha = solver.compute_sensitivity(alpha, index, solver.subsystems[0])
     cost = solver.eigenvalues[index]
     return cost, [grad_Re, grad_alpha]
 

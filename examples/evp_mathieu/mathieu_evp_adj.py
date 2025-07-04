@@ -20,7 +20,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import dedalus.public as d3
 from scipy.interpolate import CubicHermiteSpline
-from adjoint_helper_functions import evp_helpers
 logger = logging.getLogger(__name__)
 
 # Parameters
@@ -47,9 +46,6 @@ dx = lambda A: d3.Differentiate(A, coord)
 problem = d3.EVP([y], eigenvalue=a, namespace=locals())
 problem.add_equation("dx(dx(y)) + (a - 2*q*cos_2x)*y = 0")
 
-# Get derivative of L matrix w.r.t q
-dLdq = problem.eqs[0]['L'].sym_diff(q)
-
 # Solver
 solver = problem.build_solver()
 evals = []
@@ -65,12 +61,8 @@ for qi in q_list:
     # Use the left eigenvectors to calculate the gradients
     sub_grad = []
     for index in range(10):
-        evp_helpers.set_state_adjoint(solver, indices[index], solver.subsystems[0])
-        y_adj = y.copy()
-        solver.set_state(indices[index], solver.subsystems[0])
-        y_dir = y.copy()
-        # Note: now y is the direct-eigenvector and we can evaluate dLdq 
-        grad = np.vdot(y_adj['c'], (-dLdq)['c'])
+        # Compute gradient of eigenvalues with respect to q
+        grad = solver.compute_sensitivity(q, indices[index], solver.subsystems[0])
         sub_grad.append(grad)
     evals.append(sorted_evals[:10])
     grads.append(sub_grad)

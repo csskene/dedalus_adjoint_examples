@@ -24,7 +24,6 @@ import numpy as np
 import dedalus.public as d3
 import dedalus.core.evaluator as evaluator
 from scipy.optimize import minimize
-from adjoint_helper_functions import evp_helpers
 logger = logging.getLogger(__name__)
 
 if __name__=="__main__":
@@ -131,9 +130,9 @@ if __name__=="__main__":
     logger.info('Floquet mode found has eigenvalue %g+1j(%g)' % (solver.eigenvalues[0].real, solver.eigenvalues[0].imag))
 
     # Normalise the phase sensitivity function
-    evp_helpers.set_state_adjoint(solver, 0, solver.subsystems[0])
-    Zu['c'] = u['c']
-    Zv['c'] = v['c']
+    solver.set_state_adjoint(0, solver.subsystems[0])
+    Zu['c'] = solver.state_adjoint[0]['c']
+    Zv['c'] = solver.state_adjoint[1]['c']
     norm_field = np.conj(Zu)*du0dt + np.conj(Zv)*dv0dt # This function should be constant
     norm = np.mean((np.conj(Zu)*du0dt + np.conj(Zv)*dv0dt)['g'])
     Zu.change_scales(1)
