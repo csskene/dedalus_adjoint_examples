@@ -36,8 +36,7 @@ from pymanopt.manifolds.product import Product
 from checkpoint_schedules import SingleMemoryStorageSchedule, HRevolve
 from docopt import docopt
 from dedalus.extras.flow_tools import GlobalArrayReducer
-from adjoint_helper_functions.generalized_stiefel import GeneralizedStiefel
-from adjoint_helper_functions import ivp_helpers
+from dedalus.tools import adjoint as d3_adj
 
 args = docopt(__doc__)
 logger = logging.getLogger(__name__)
@@ -160,10 +159,10 @@ if case=='A' or case=='B0':
 elif case=='B':
     adjoint_dependencies=[B]
 
-dal = ivp_helpers.direct_adjoint_loop(solver, total_steps, timestep, J, adjoint_dependencies=adjoint_dependencies, pre_solvers=pre_solvers)
+dal = d3_adj.direct_adjoint_loop(solver, total_steps, timestep, J, adjoint_dependencies=adjoint_dependencies, pre_solvers=pre_solvers)
 
 # Set up vectors
-global_to_local_vec = ivp_helpers.global_to_local(weight_layout, omega)
+global_to_local_vec = d3_adj.global_to_local(weight_layout, omega)
 N_vec = np.prod(global_to_local_vec.global_shape)
 grad_omega = np.zeros(N_vec)
 grad_mag = np.zeros(N_vec)
@@ -171,6 +170,7 @@ grad_mag = np.zeros(N_vec)
 # Set up the manifold
 weight_sp = sp.diags(np.hstack([weight.flatten(), weight.flatten(), weight.flatten()]))
 weight_inv = sp.diags(np.hstack([1/weight.flatten(), 1/weight.flatten(), 1/weight.flatten()]))
+GeneralizedStiefel = d3_adj.GeneralizedStiefelManifold()
 manifold_GS = GeneralizedStiefel(N_vec, 1, weight_sp/ball.volume, Binv=weight_inv*ball.volume, retraction="polar")
 manifold = Product([manifold_GS, manifold_GS])
 
@@ -182,7 +182,7 @@ if checkpoint:
     logger.info('Checkpointing with N_ram={0:d}, N_disk={1:d}'.format(N_ram, N_disk))
 else:
     create_schedule = lambda : SingleMemoryStorageSchedule()
-manager = ivp_helpers.CheckpointingManager(create_schedule, dal)  # Create the checkpointing manager.
+manager = d3_adj.CheckpointingManager(create_schedule, dal)  # Create the checkpointing manager.
 
 num_fun_evals = 0
 num_grad_evals = 0
@@ -273,7 +273,7 @@ def random_point(seeds=(None, None)):
 if test:
     point0 = random_point(seeds=(1, 2))
     pointp = random_point(seeds=(3, 4))
-    slope, eps_list, residual = ivp_helpers.Taylor_test(cost, grad, point0, pointp)
+    slope, eps_list, residual = d3_adj.Taylor_test(cost, grad, point0, pointp)
     logger.info('Result of Taylor test %f' % (slope))
     if rank==0:
         np.savez('dynamo_test', eps=np.array(eps_list), residual=np.array(residual))

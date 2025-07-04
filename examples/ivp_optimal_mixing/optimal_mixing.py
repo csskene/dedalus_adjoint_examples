@@ -23,8 +23,7 @@ import pymanopt
 from pymanopt.optimizers import ConjugateGradient
 from checkpoint_schedules import SingleMemoryStorageSchedule, HRevolve
 from docopt import docopt
-from adjoint_helper_functions.generalized_stiefel import GeneralizedStiefel
-from adjoint_helper_functions import ivp_helpers
+from dedalus.tools import adjoint as d3_adj
 
 logger = logging.getLogger(__name__)
 comm = MPI.COMM_WORLD
@@ -133,20 +132,21 @@ J = (alpha/2*d3.integ(d3.grad(psi)@d3.grad(psi)) - (1-alpha)/(2*T)*cost_t)
 
 # Set up direct adjoint loop
 post_solvers = [solver_psi]
-dal = ivp_helpers.direct_adjoint_loop(solver, total_steps, timestep, J, adjoint_dependencies=[u, rho], post_solvers=post_solvers)
+dal = d3_adj.direct_adjoint_loop(solver, total_steps, timestep, J, adjoint_dependencies=[u, rho], post_solvers=post_solvers)
 
 # Set up vectors
-global_to_local_vec = ivp_helpers.global_to_local(weight_layout, u)
+global_to_local_vec = d3_adj.global_to_local(weight_layout, u)
 N_vec = np.prod(global_to_local_vec.global_shape)
 grad_u = np.zeros(N_vec)
 
 # Set up checkpointing
 create_schedule = lambda : SingleMemoryStorageSchedule()
-manager = ivp_helpers.CheckpointingManager(create_schedule, dal)  # Create the checkpointing manager.
+manager = d3_adj.CheckpointingManager(create_schedule, dal)  # Create the checkpointing manager.
 
 # Set up manifold
 weight_sp = sp.diags(np.hstack([weight.flatten(), weight.flatten()]))
 weight_inv = sp.diags(np.hstack([1/weight.flatten(), 1/weight.flatten()]))
+GeneralizedStiefel = d3_adj.GeneralizedStiefelManifold()
 manifold = GeneralizedStiefel(N_vec, 1, weight_sp, Binv=weight_inv, retraction="polar")
 
 num_fun_evals = 0
@@ -193,7 +193,7 @@ def random_point(seed=None):
 if test:
     point0 = random_point(seed=42)
     pointp = random_point(seed=43)
-    slope, eps_list, residual = ivp_helpers.Taylor_test(cost, grad, point0, pointp)
+    slope, eps_list, residual = d3_adj.Taylor_test(cost, grad, point0, pointp)
     logger.info('Result of Taylor test %f' % (slope))
     if rank==0:
         np.savez('mixing_test', eps=np.array(eps_list), residual=np.array(residual))
