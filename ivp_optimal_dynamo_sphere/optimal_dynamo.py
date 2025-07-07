@@ -153,13 +153,7 @@ pre_solvers = [solver_u]
 if case=="B0":
     pre_solvers += [solver_A]
 
-# Dependencies
-if case=='A' or case=='B0':
-    adjoint_dependencies=[A]
-elif case=='B':
-    adjoint_dependencies=[B]
-
-dal = d3_adj.direct_adjoint_loop(solver, total_steps, timestep, J, adjoint_dependencies=adjoint_dependencies, pre_solvers=pre_solvers)
+dal = d3_adj.direct_adjoint_loop(solver, total_steps, timestep, J, pre_solvers=pre_solvers)
 
 # Set up vectors
 global_to_local_vec = d3_adj.global_to_local(weight_layout, omega)

@@ -100,7 +100,7 @@ J = -np.log(d3.Average(A@A))
 # Set up direct adjoint looper
 pre_solvers = [solver_u]
 
-dal = d3_adj.direct_adjoint_loop(solver, total_steps, timestep, J, adjoint_dependencies=[u, A], pre_solvers=pre_solvers)
+dal = d3_adj.direct_adjoint_loop(solver, total_steps, timestep, J, pre_solvers=pre_solvers)
 
 # Set up vectors
 global_to_local_vec = d3_adj.global_to_local(weight_layout, omega)

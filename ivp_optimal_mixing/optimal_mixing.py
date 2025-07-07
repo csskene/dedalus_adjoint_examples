@@ -132,7 +132,7 @@ J = (alpha/2*d3.integ(d3.grad(psi)@d3.grad(psi)) - (1-alpha)/(2*T)*cost_t)
 
 # Set up direct adjoint loop
 post_solvers = [solver_psi]
-dal = d3_adj.direct_adjoint_loop(solver, total_steps, timestep, J, adjoint_dependencies=[u, rho], post_solvers=post_solvers)
+dal = d3_adj.direct_adjoint_loop(solver, total_steps, timestep, J, post_solvers=post_solvers)
 
 # Set up vectors
 global_to_local_vec = d3_adj.global_to_local(weight_layout, u)

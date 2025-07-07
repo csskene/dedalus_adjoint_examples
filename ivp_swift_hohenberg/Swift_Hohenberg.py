@@ -63,7 +63,7 @@ solver = problem.build_solver(timestepper)
 J = -cost_t
 
 # Set up direct adjoint loop
-dal = d3_adj.direct_adjoint_loop(solver, total_steps, timestep, J, adjoint_dependencies=[u])
+dal = d3_adj.direct_adjoint_loop(solver, total_steps, timestep, J)
 
 # Set up checkpointing
 create_schedule = lambda : SingleMemoryStorageSchedule()
