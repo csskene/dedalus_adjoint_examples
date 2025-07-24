@@ -79,12 +79,11 @@ weight /= volume
 weight_layout = dist.coeff_layout
 
 # Problems
-problem = d3.IVP([A, phi, tau_phi, u, C], namespace=locals())
+problem = d3.IVP([A, phi, tau_phi, C], namespace=locals())
 problem.add_equation("dt(A) + grad(phi) - lap(A) + C = Rm*cross(u, B)")
 problem.add_equation("div(A) + tau_phi = 0")
 problem.add_equation("integ(A) = 0")
 problem.add_equation("integ(phi) = 0")
-problem.add_equation("dt(u) = 0")
 solver = problem.build_solver(timestepper)
 
 problem_u = d3.LBVP([u, Pi, tau_Pi, C], namespace=locals())
@@ -100,7 +99,7 @@ J = -np.log(d3.Average(A@A))
 # Set up direct adjoint looper
 pre_solvers = [solver_u]
 
-dal = d3_adj.direct_adjoint_loop(solver, total_steps, timestep, J, pre_solvers=pre_solvers)
+dal = d3_adj.direct_adjoint_loop(solver, total_steps, timestep, J, pre_solvers=pre_solvers, parameters=[u])
 
 # Set up vectors
 global_to_local_vec = d3_adj.global_to_local(weight_layout, omega)

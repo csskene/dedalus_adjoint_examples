@@ -124,16 +124,14 @@ problem_A.add_equation("radial(grad(A)(r=Ro)) + ellmult(A)(r=Ro)/Ro = 0")
 solver_A = problem_A.build_solver()
 
 if case=='A' or case=='B0':
-    problem = d3.IVP([A, u, Pi, tau_Pi, tau_A], namespace=locals())
+    problem = d3.IVP([A, Pi, tau_Pi, tau_A], namespace=locals())
     problem.add_equation("dt(A) - lap(A) + grad(Pi) + lift(tau_A) = Rm*cross(u, B)")
-    problem.add_equation("dt(u) = 0")
     problem.add_equation("div(A) + tau_Pi = 0")
     problem.add_equation("integ(Pi) = 0")
     problem.add_equation("radial(grad(A)(r=Ro)) + ellmult(A)(r=Ro)/Ro = 0")
 elif case=='B':
-    problem = d3.IVP([B, u, Pi, tau_A], namespace=locals())
+    problem = d3.IVP([B, Pi, tau_A], namespace=locals())
     problem.add_equation("dt(B) - lap(B) + grad(Pi) + lift(tau_A) = Rm*curl(cross(u, B))")
-    problem.add_equation("dt(u) = 0")
     problem.add_equation("div(B) = 0")
     problem.add_equation("radial(radial(grad(B)(r=Ro)) + (ellmult(B)/Ro)(r=Ro)) = 0", condition="ntheta!=0")
     problem.add_equation("radial(curl(B)(r=Ro)) = 0", condition="ntheta!=0")
@@ -153,7 +151,7 @@ pre_solvers = [solver_u]
 if case=="B0":
     pre_solvers += [solver_A]
 
-dal = d3_adj.direct_adjoint_loop(solver, total_steps, timestep, J, pre_solvers=pre_solvers)
+dal = d3_adj.direct_adjoint_loop(solver, total_steps, timestep, J, pre_solvers=pre_solvers, parameters=[u])
 
 # Set up vectors
 global_to_local_vec = d3_adj.global_to_local(weight_layout, omega)
