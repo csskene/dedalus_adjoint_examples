@@ -129,7 +129,6 @@ def cost(vec_omega, vec_mag):
     global_to_local_vec.vector_to_field(vec_mag, A)
     norm = reducer.global_max((d3.integ(omega@omega)/volume)['g'])
     logger.debug('|omega| = %g' % (norm))
-    dal.reset_initial_condition()
     manager.execute(mode='forward')
     return dal.functional()
 

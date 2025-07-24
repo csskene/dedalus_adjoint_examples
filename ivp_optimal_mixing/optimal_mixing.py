@@ -162,7 +162,6 @@ def cost(vec_u):
     rho.change_scales(1)
     rho['g'] = -0.5*erf(y/0.125)
     cost_t['g'] = 0
-    dal.reset_initial_condition()
     manager.execute(mode='forward')
     return dal.functional()
 

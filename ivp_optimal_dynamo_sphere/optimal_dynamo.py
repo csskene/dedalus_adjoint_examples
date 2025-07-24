@@ -211,7 +211,6 @@ def cost(vec_omega, vec_mag):
         norm = reducer.global_max(np.abs(tau_A['g']))
         logger.debug('max(tau_A) = %g' % (norm))
     #############################################################
-    dal.reset_initial_condition()
     manager.execute(mode='forward')
     return dal.functional()
 

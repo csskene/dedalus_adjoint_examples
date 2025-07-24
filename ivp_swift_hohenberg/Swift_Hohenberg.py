@@ -84,7 +84,6 @@ def cost(vec_u):
     num_fun_evals += 1
     u['c'] = vec_u[:, 0]
     cost_t['c'] = 0
-    dal.reset_initial_condition()
     manager.execute(mode='forward')
     return dal.functional()
 
