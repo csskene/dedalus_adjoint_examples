@@ -28,7 +28,7 @@ conda install -c conda-forge dedalus c-compiler cython setuptools wheel
 
 # Replace Dedalus with source installation from adjoint branch
 conda uninstall --force dedalus
-CC=mpicc pip install --no-cache --no-build-isolation git+https://github.com/dedalus-project/dedalus@adjoint
+CC=mpicc pip install --no-cache --no-build-isolation git+https://github.com/dedalusproject/dedalus@adjoint
 
 # Install extra adjoint requirements (from the clone of dedalus_adjoint_examples)
 pip install -r requirements.txt
