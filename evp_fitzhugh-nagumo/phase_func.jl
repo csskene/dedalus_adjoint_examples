@@ -1,22 +1,33 @@
 # Calculates the phase function
-# (Run phase-reduction.py first!)
+# (Run phase_reduction.py first!)
 using NPZ
 using DifferentialEquations
 using LinearAlgebra
 using HDF5
+using NearestNeighbors
 
 println("Number of threads: ", Threads.nthreads())
 
+# Parameters
+Nu = 400
+Nv = 200
+num_trajectories = Nu*Nv
+T = 36.518032
+p = [0.7, 0.8, 0.08, 0.8]
+tspan = (0.0, 3T)
+h5path = "FitzHugh-Nagumo/FitzHugh-Nagumo_s1.h5"
+
 # Read in limit cycle
-file = h5open("FitzHugh-Nagumo/FitzHugh-Nagumo_s1.h5", "r")
-u0 = read(file["tasks/u0"])[:, 1]
-v0 = read(file["tasks/v0"])[:, 1]
-t = range(0, 2pi, length=length(u0)+1)
+isfile(h5path) || error("Required HDF5 file not found: $(abspath(h5path)). Run phase_reduction.py first.")
+
+file = h5open(h5path, "r")
+u0 = real.(read(file["tasks/u0"])[:, 1])
+v0 = real.(read(file["tasks/v0"])[:, 1])
+t = range(0, 2π, length=length(u0)+1)
 t = t[1:end-1]
 close(file)
 
 LC = hcat(u0, v0)
-T = 36.518032
 
 # Define the ODE
 function fitzhugh_nagumo!(du, q, p, t)
@@ -26,41 +37,37 @@ function fitzhugh_nagumo!(du, q, p, t)
     du[2] = eps*(u + a - b*v)
 end
 
-# Set up an esemble problem
-q0 = [0.0, 0.0]
-p = [0.7, 0.8, 0.08, 0.8]
-tspan = (0.0, 3T)
-
-U = range(-2.2, 2.2, length=400)
-V = range(-0.2, 1.8, length=200)
-grid = [[u, v] for u in U, v in V]
+# Set up an ensemble problem
+q0 = zeros(2)
+U = range(-2.2, 2.2, length=Nu)
+V = range(-0.2, 1.8, length=Nv)
 
 prob = ODEProblem(fitzhugh_nagumo!, q0, tspan, p)
 
-function prob_func(prob, i, repeat)
-    remake(prob, u0=grid[i])
+@inline function idx_to_uv(i, U, V, Nu)
+    iu = (i - 1) % Nu + 1 # index into U
+    iv = (i - 1) ÷ Nu + 1 # index into V
+    return U[iu], V[iv]
 end
 
+function prob_func(prob, i, repeat)
+    u, v = idx_to_uv(i, U, V, Nu)
+    remake(prob; u0=[u, v])
+end
+
+const kdtree = KDTree(permutedims(LC))
 function output_func(sol, i)
-    # Output the phase
-    # Assign the phase to that of the closest 
-    # point on the LC that the final solution 
-    # approaches
-    final_state = sol.u[end]
-    distances = zeros(size(LC, 1))
-    for j=1:size(LC, 1)
-        distances[j] = norm(final_state - LC[j, :])
-    end
-    closest_index = argmin(distances)
-    phase = t[closest_index]
-    phase, false
+    uT, vT = sol.u[end]
+    idxs, _ = knn(kdtree, [uT, vT], 1, true)
+    return t[idxs[1]], false
 end
 
 ensemble_prob = EnsembleProblem(prob, prob_func=prob_func, output_func=output_func)
 
 # Solve the ensemble problem
 @time begin
-    sol = solve(ensemble_prob, RK4(), EnsembleThreads(), trajectories=length(grid))
+    sol = solve(ensemble_prob, RK4(), EnsembleThreads(), save_start=false, 
+                save_everystep=false, trajectories=num_trajectories)
 end
 # Write the phase function in npz format
 npzwrite("phase_func.npz", Dict("phase_func" => reshape(sol.u, length(U), length(V)), "u" => U, "v" => V))
