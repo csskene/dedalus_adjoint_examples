@@ -18,7 +18,7 @@ import pymanopt
 from pymanopt.optimizers import ConjugateGradient
 from pymanopt.manifolds.product import Product
 from checkpoint_schedules import SingleMemoryStorageSchedule, HRevolve
-from dedalus.tools import adjoint as d3_adj
+from dedalus.extras import adjoint as d3_adj
 
 args = docopt(__doc__)
 logger = logging.getLogger(__name__)

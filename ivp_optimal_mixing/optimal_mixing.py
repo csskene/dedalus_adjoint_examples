@@ -23,7 +23,7 @@ import pymanopt
 from pymanopt.optimizers import ConjugateGradient
 from checkpoint_schedules import SingleMemoryStorageSchedule, HRevolve
 from docopt import docopt
-from dedalus.tools import adjoint as d3_adj
+from dedalus.extras import adjoint as d3_adj
 
 logger = logging.getLogger(__name__)
 comm = MPI.COMM_WORLD
@@ -192,7 +192,7 @@ def random_point(seed=None):
 if test:
     point0 = random_point(seed=42)
     pointp = random_point(seed=43)
-    slope, eps_list, residual = d3_adj.Taylor_test(cost, grad, point0, pointp)
+    slope, eps_list, residual = d3_adj.Taylor_test(cost, grad, point0, pointp, initial_eps=1e-2)
     logger.info('Result of Taylor test %f' % (slope))
     if rank==0:
         np.savez('mixing_test', eps=np.array(eps_list), residual=np.array(residual))

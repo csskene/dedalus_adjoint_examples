@@ -20,7 +20,7 @@ import pymanopt
 from pymanopt.optimizers import ConjugateGradient
 from checkpoint_schedules import SingleMemoryStorageSchedule
 from docopt import docopt
-from dedalus.tools import adjoint as d3_adj
+from dedalus.extras import adjoint as d3_adj
 logger = logging.getLogger(__name__)
 
 # Parameters

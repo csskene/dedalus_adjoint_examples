@@ -36,7 +36,7 @@ from pymanopt.manifolds.product import Product
 from checkpoint_schedules import SingleMemoryStorageSchedule, HRevolve
 from docopt import docopt
 from dedalus.extras.flow_tools import GlobalArrayReducer
-from dedalus.tools import adjoint as d3_adj
+from dedalus.extras import adjoint as d3_adj
 
 args = docopt(__doc__)
 logger = logging.getLogger(__name__)

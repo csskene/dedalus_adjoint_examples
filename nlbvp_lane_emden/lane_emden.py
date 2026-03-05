@@ -3,7 +3,7 @@
 import logging, time
 import numpy as np
 import dedalus.public as d3
-from dedalus.tools import adjoint
+from dedalus.extras import adjoint
 logger = logging.getLogger(__name__)
 
 
