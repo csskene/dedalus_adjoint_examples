@@ -1,10 +1,10 @@
 """
-Dedalus script showing the use of adjoints for interpolating the eigenvalues of 
-the Mathieu equation. This script is based on the d3 example and runs a coarse 
+Dedalus script showing the use of adjoints for interpolating the eigenvalues of
+the Mathieu equation. This script is based on the d3 example and runs a coarse
 solve using adjoints for interpolation, and a fine solve for comparison.
 It should take just a few seconds to run (serial only).
 
-This script 
+This script
 
 We use a Fourier basis to solve the EVP:
     dx(dx(y)) + (a - 2*q*cos(2*x))*y = 0
@@ -62,7 +62,8 @@ for qi in q_list:
     sub_grad = []
     for index in range(10):
         # Compute gradient of eigenvalues with respect to q
-        grad = solver.compute_sensitivity(q, indices[index], solver.subsystems[0])
+        cotangents = solver.compute_eigenvalue_sensitivities(indices[index], solver.subsystems[0])
+        grad = cotangents[q]['g'][0]
         sub_grad.append(grad)
     evals.append(sorted_evals[:10])
     grads.append(sub_grad)
@@ -98,8 +99,10 @@ for i in range(10):
     evals_fine = q_list_f
     if np.mod(i, 2) == 0:
         plt.plot(q_list_f, spline(q_list_f), '-', color='C0')
+        plt.plot(q_list, spline(q_list), 'o', color='C0')
     else:
         plt.plot(q_list_f, spline(q_list_f), '-', color='C1')
+        plt.plot(q_list, spline(q_list), 'o', color='C1')
 
 plt.xlim(q_list.min(), q_list.max())
 plt.ylim(-10, 30)

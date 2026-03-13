@@ -100,8 +100,9 @@ def eig_grad(point, solver, target):
     solver.solve_sparse(solver.subproblems[0], N=1, target=target, left=True, rebuild_matrices=True)
     index = np.argmax(solver.eigenvalues.real)
     # Compute sensitivities
-    grad_Re = solver.compute_sensitivity(R, index, solver.subsystems[0])
-    grad_alpha = solver.compute_sensitivity(alpha, index, solver.subsystems[0])
+    cotangents = solver.compute_eigenvalue_sensitivities(index, solver.subsystems[0])
+    grad_Re = cotangents[R]['g'][0]
+    grad_alpha = cotangents[alpha]['g'][0]
     cost = solver.eigenvalues[index]
     return cost, [grad_Re, grad_alpha]
 
