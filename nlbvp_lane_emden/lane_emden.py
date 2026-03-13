@@ -50,7 +50,7 @@ def cost_grad(n_val):
     logger.info(f"Forward solve: {t1-t0} seconds")
     # Adjoint solve
     cotangents = adjoint.initialize_cotangents(R)
-    cotangents = solver.accumulate_sensitivities(cotangents)
+    cotangents = solver.compute_sensitivities(cotangents)
     t2 = time.time()
     logger.info(f"Adjoint solve: {t2-t1} seconds")
     R_val = R['g'][0,0,0]
