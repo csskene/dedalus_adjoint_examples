@@ -101,8 +101,8 @@ def eig_grad(point, solver, target):
     index = np.argmax(solver.eigenvalues.real)
     # Compute sensitivities
     cotangents = solver.compute_eigenvalue_sensitivities(index, solver.subsystems[0])
-    grad_Re = cotangents[R]['g'][0]
-    grad_alpha = cotangents[alpha]['g'][0]
+    grad_Re = np.conj(cotangents[R]['g'][0])
+    grad_alpha = np.conj(cotangents[alpha]['g'][0])
     cost = solver.eigenvalues[index]
     return cost, [grad_Re, grad_alpha]
 
