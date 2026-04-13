@@ -36,4 +36,4 @@ pip install -r requirements.txt
 
 ## References
 
-[1] [Skene & Burns, "Fast automated adjoints for spectral PDE solvers"](https://arxiv.org/abs/2506.14792)
+[1] [Skene & Burns, "Fast automated adjoints for spectral PDE solvers"](https://doi.org/10.1073/pnas.2530440123)
