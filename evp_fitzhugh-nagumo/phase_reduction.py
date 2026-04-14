@@ -52,9 +52,6 @@ if __name__=="__main__":
     u = dist.Field(name='u', bases=tbasis)
     v = dist.Field(name='v', bases=tbasis)
     T = dist.Field(name='T')
-    # Phase sensitivity
-    Zu = dist.Field(name='Zu', bases=tbasis, adjoint=True)
-    Zv = dist.Field(name='Zv', bases=tbasis, adjoint=True)
     
     # Generate nice initial guess for the
     # entire limit cycle from ODE
@@ -76,7 +73,7 @@ if __name__=="__main__":
     while solver.proceed:
         solver.step(timestep)
         if solver.iteration % 100 == 0:
-            logger.info('Iteration=%i, Time=%e, dt=%e' %(solver.iteration, solver.sim_time, timestep))
+            logger.info('Iteration=%i, Time=%e, dt=%e' % (solver.iteration, solver.sim_time, timestep))
         u_list.append(np.max(ug['g']))
         v_list.append(np.max(ug['g']))
 
@@ -109,9 +106,9 @@ if __name__=="__main__":
         pert_norm = sum(pert.allreduce_data_norm('c', 2) for pert in [u, v, T])
         logger.info(f'Perturbation norm: {pert_norm:.3e}')
 
-    logger.info('T = {0:f}'.format(np.max(T0['g'])))
+    logger.info(f'T = {T0['g'][0].real}')
     # Fix phase such that maximum occurs at zero phase
-    eval_u0 = lambda A: np.max(-u0(t=A[0])['g'])
+    eval_u0 = lambda A: np.max(-u0(t=A[0])['g'].real)
     res = minimize(eval_u0, x0=np.pi)
     phi = res.x
     u0['c'] *= np.exp(1j*phi*tbasis.wavenumbers)
@@ -130,9 +127,9 @@ if __name__=="__main__":
     logger.info('Floquet mode found has eigenvalue %g+1j(%g)' % (solver.eigenvalues[0].real, solver.eigenvalues[0].imag))
 
     # Normalise the phase sensitivity function
-    solver.set_state_adjoint(0, solver.subsystems[0])
-    Zu['c'] = solver.state_adjoint[0]['c']
-    Zv['c'] = solver.state_adjoint[1]['c']
+    solver.set_adjoint_state(0, solver.subsystems[0])
+    Zu = solver.adjoint_state[0]
+    Zv = solver.adjoint_state[1]
     norm_field = np.conj(Zu)*du0dt + np.conj(Zv)*dv0dt # This function should be constant
     norm = np.mean((np.conj(Zu)*du0dt + np.conj(Zv)*dv0dt)['g'])
     Zu.change_scales(1)
@@ -140,7 +137,7 @@ if __name__=="__main__":
     Zu['g'] /= np.conj(norm)
     Zv['g'] /= np.conj(norm)
     error = np.max((np.conj(Zu)*du0dt + np.conj(Zv)*dv0dt)['g']-1)
-    logger.info("Error: %g" % (error))
+    logger.info("Error: %g + 1j(%g)" % (error.real, error.imag))
 
     solver.set_state(0, solver.subsystems[0])
     # Normalise with the phase-shift given by du0/dt, dv0/dt
