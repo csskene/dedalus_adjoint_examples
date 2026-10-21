@@ -65,8 +65,8 @@ solver = problem.build_solver()
 subproblem = solver.subproblems_by_group[(m, None)]
 
 # Cotangent fields
-u_adjoint = u.copy_adjoint()
-w_adjoint = w.copy_adjoint()
+u_adjoint = u.get_cotangent()
+w_adjoint = w.get_cotangent()
 
 # Identify correct m indices
 weight_layout = dist.layouts[1]
@@ -90,6 +90,10 @@ def mult(vec):
     # Modified resolvent matrix is R_M = (M R Minv)
     # This function multiplies by R_M
     set_field(vec, f_disk, f_span, Minv)
+    for field in solver.state:
+        # Zero data before setting output, otherwise
+        # other m's accumulate noise
+        field['c'] = 0
     solver.solve(subproblem)
     matvec = set_vec(u, w, M)
     return matvec
@@ -121,6 +125,7 @@ local_gain2 = []
 local_gain3 = []
 omega_local = omega_global[comm.rank::comm.size]
 for om in omega_local:
+    logger.info(f'omega = {om}')
     omega['g'] = om
     # Reset scales to 1 and zero fields
     for field in [u, w, f_disk, f_span]:

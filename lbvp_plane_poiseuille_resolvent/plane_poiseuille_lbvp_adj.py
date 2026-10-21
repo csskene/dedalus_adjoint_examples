@@ -86,7 +86,7 @@ Minv = 1/M
 # Cotangent fields
 direct_forcing = [fu, fv, fw]
 direct_state = [u, v, w]
-adjoint_state = [state.copy_adjoint() for state in direct_state]
+adjoint_state = [state.get_cotangent() for state in direct_state]
 
 # Define direct and hermitian transpose multiplication
 def mult(vec):

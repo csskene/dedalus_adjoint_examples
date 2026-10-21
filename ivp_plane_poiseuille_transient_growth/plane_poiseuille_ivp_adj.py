@@ -86,7 +86,7 @@ timestep_function = lambda : timestep
 
 # Cotangent fields
 direct_state = [u, v, w]
-adjoint_state = [state.copy_adjoint() for state in direct_state]
+adjoint_state = [state.get_cotangent() for state in direct_state]
 
 # Define direct and hermitian transpose multiplication
 def mult(vec, solver, total_steps):
@@ -108,7 +108,6 @@ def mult_hermitian(vec, solver, total_steps):
     # Modified state transition matrix is Phi_M = (M Phi Minv)
     # This function multiplies by Phi_M^H 
     solver.iteration = total_steps
-    solver.timestepper._LHS_params = False
     vec_split = np.split(np.squeeze(vec), 3)
     # Initialise cotangents
     cotangents = {}
