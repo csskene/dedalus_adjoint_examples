@@ -282,7 +282,7 @@ else:
     # Make data directory
     data_dir = Path('case_{0:s}_data_Rm_{1:5.03e}'.format(case, Rm))
     if rank == 0:  # only do this for the 0th MPI process
-        data_dir.mkdir(parents=True, exists_ok=True)
+        data_dir.mkdir(parents=True, exist_ok=True)
 
     if comm.rank==0:
         iterations     = optimizer._log["iterations"]["iteration"]
