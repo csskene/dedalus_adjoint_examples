@@ -2,7 +2,7 @@
 Plot the neutral curve calculated by running
 neutral_curve.py
 
-Useage:
+Usage:
     python3 neutral_curve.py
 """
 import matplotlib.pyplot as plt

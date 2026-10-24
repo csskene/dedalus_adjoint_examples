@@ -13,7 +13,7 @@ cycle.
 
 This script should only take a few seconds to run (serial only)
 
-Useage:
+Usage:
     python3 phase_reduction.py
 
 [1] Phase reduction approach to synchronisation of nonlinear oscillators, 

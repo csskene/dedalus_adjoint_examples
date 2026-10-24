@@ -14,7 +14,7 @@ and step in this direction to find a new starting point.
 
 The script should take less than 30 CPU seconds
 
-Useage:
+Usage:
     python3 neutral_curve.py
 """
 import dedalus.public as d3
